@@ -89,14 +89,14 @@ function normalizeMinMax!(dataset::AbstractArray{<:Real,2})
     normalizeMinMax!(dataset, normalizationParameters)
 end;
 
-function normalizeMinMax(dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}})
+function normalizeMinMax(dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}}) #Usar copy
     minValues, maxValues = normalizationParameters
     normalizedDataset = (dataset .-minValues) ./ (maxValues .- minValues)
     normalizedDataset[:, vec(minValues .== maxValues)] .= 0
     return normalizedDataset
 end;
 
-function normalizeMinMax(dataset::AbstractArray{<:Real,2})
+function normalizeMinMax(dataset::AbstractArray{<:Real,2}) #Usar copy
     normalizationParameters = calculateMinMaxNormalizationParameters(dataset)
     return normalizeMinMax(dataset, normalizationParameters)
 end;
@@ -133,7 +133,7 @@ function classifyOutputs(outputs::AbstractArray{<:Real,1}; threshold::Real=0.5)
     return classifiedOutputs
 end;
 
-function classifyOutputs(outputs::AbstractArray{<:Real,2}; threshold::Real=0.5)
+function classifyOutputs(outputs::AbstractArray{<:Real,2}; threshold::Real=0.5) #(_,indicesMaxEachInstance) = findmax(outputs, dims=2); <- recomendable
     classifiedOutputs = outputs .>= threshold
     return classifiedOutputs
 end;
@@ -181,19 +181,70 @@ end;
 
 
 function buildClassANN(numInputs::Int, topology::AbstractArray{<:Int,1}, numOutputs::Int; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)))
-    #
-    # Codigo a desarrollar
-    #
-end;
+    ann = Chain()
+    numInputsLayer = numInputs 
+
+    if !isempty(topology)
+        for (i, numOutputsLayer) in enumerate(topology)
+            activation = transferFunctions[i]
+            ann = Chain(ann..., Dense(numInputsLayer, numOutputsLayer, activation))
+            numInputsLayer = numOutputsLayer
+        end
+    end
+
+    final_activacion = numOutputs == 1 ? σ : softmax
+    ann = Chain(ann..., Dense(numInputsLayer, numOutputs, final_activacion))
+
+    return ann
+end;        
 
 function trainClassANN(topology::AbstractArray{<:Int,1}, dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)), maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01)
-    #
-    # Codigo a desarrollar
-    #
+    
+    #definimos entradas y salidas del dataset
+    inputs, targets = dataset
+
+    #convertimos a float para facilitar a Flux
+    inputs = Float32.(inputs) 
+    targets = Float32.(targets)
+
+    #sacamos las neuronas que deben tener la capa de entrada y salida
+    numInputs = size(inputs, 2)
+    numOutputs = size(targets, 2)
+
+    #llamamos a la funcion que crea la RNA con la topología
+    ann = buildClassANN(numInputs, topology, numOutputs; transferFunctions=transferFunctions)
+
+    lossHistory = Float32[] #guardamos como cambia la pérdida en cada iteración
+
+    #funcion de pérdida que usamos para entrenar
+    loss(x,y) = Flux.Losses.mse(ann(x),y)
+
+    # Elegimos el optimizador Adam con la tasa de aprendizaje que nos pasaron
+    opt = Flux.Optimise.Adam(learningRate)
+
+    #obtenemos los parámetros de la red
+    ps = Flux.params(ann)
+
+    #guardamos el valor de la pérdida antes de empezar el entrenamiento
+    push!(lossHistory, loss(inputs', targets'))
+
+
+    #bucle que entrena la red maxEpochs iteraciones o hasta que la pérdida sea suficientemente baja  
+    for epoch in 1:maxEpochs
+        Flux.train!(loss,ps,[(inputs',targets')], opt) #entrenamos una vez por iteración
+
+        epochLoss = loss(inputs', targets') #calculamos pérdida después de entrenar
+        push!(lossHistory, epochLoss) #guardamos la pérdida
+
+        if epochLoss <= minLoss #si la perdida es menor o igual a minLoss paramos el entrenamiento
+            break
+        end
+    end
+
+    return (ann, lossHistory) #Devolvemos la red entrenada y el historial de pérdida
 end;
 
 function trainClassANN(topology::AbstractArray{<:Int,1}, (inputs, targets)::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)), maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01)
-    #
-    # Codigo a desarrollar
-    #
+    targets = reshape(targets, :, 1) #convertimos a una matriz de 1 columna
+    return trainClassANN(topology, (inputs, targets); transferFunctions=transferFunctions, maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
 end;
