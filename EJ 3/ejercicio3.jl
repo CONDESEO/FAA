@@ -2,7 +2,7 @@ using Random
 
 function holdOut(N::Int, P::Real)
     indices = randperm(N)
-    n_test = floor(int, P * N)
+    n_test = Int(round(int, P * N))
     indices_test = indices[1:n_test]
     indices_entrenamiento = indices[n_test + 1:end]
     return indices_entrenamiento, indices_test
@@ -10,10 +10,10 @@ end;
 
 function holdOut(N::Int, Pval::Real, Ptest::Real)
     indices = randperm(N)
-    n_test = floor(int, Ptest * N)
+    n_test = Int(round(int, Ptest * N))
     indices_test = indices[1:n_test]
     train_val_indices = setdiff(indices, indices_test)
-    n_validacion = floor(int, Pval * length(train_val_indices))
+    n_validacion = Int(round(int, Pval * length(train_val_indices)))
     indices_validacion = train_val_indices[1: n_validacion]
     indices_entrenamiento = train_val_indices[n_validacion + 1: end]
     return indices_validacion, indices_entrenamiento, indices_test
