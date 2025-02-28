@@ -1,4 +1,7 @@
 using Random
+using Flux
+using Flux.Optimise: Adam
+using Random
 
 function holdOut(N::Int, P::Real)
     indices = randperm(N)
@@ -110,5 +113,12 @@ function trainClassANN(topology::AbstractArray{<:Int,1},
     transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
     maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20)
 
-    
+    # Reshape las salidas deseadas (targets) a una matriz de una columna
+    trainingDataset = (trainingDataset[1], reshape(trainingDataset[2], :, 1))
+    validationDataset = (validationDataset[1], reshape(validationDataset[2], :, 1))
+    testDataset = (testDataset[1], reshape(testDataset[2], :, 1))
+
+    # Llamar a la función principal para el entrenamiento
+    return trainClassANN(topology, trainingDataset; transferFunctions=transferFunctions, maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
+  
 end;
