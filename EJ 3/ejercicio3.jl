@@ -23,12 +23,17 @@ function holdOut(N::Int, Pval::Real, Ptest::Real)
 end;
 
 function trainClassANN(topology::AbstractArray{<:Int,1},
-    trainingDataset::  Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
-    validationDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0,size(trainingDataset[2],2))),
-    testDataset::      Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0,size(trainingDataset[2],2))),
-    transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
-    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20)
-    
+    trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}};
+    validationDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}} = (Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0)),
+    testDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}} = (Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0)),
+    transferFunctions::AbstractArray{<:Function,1} = fill(σ, length(topology)),
+    maxEpochs::Int = 1000, minLoss::Real = 0.0, learningRate::Real = 0.01, maxEpochsVal::Int = 20)
+
+    # Reshape las salidas deseadas (targets) a una matriz de una columna
+    trainingDataset = (trainingDataset[1], reshape(trainingDataset[2], :, 1))
+    validationDataset = (validationDataset[1], reshape(validationDataset[2], :, 1))
+    testDataset = (testDataset[1], reshape(testDataset[2], :, 1))
+
     # Extraer datos correctamente
     inputs, targets = trainingDataset
     inputsVal, targetsVal = validationDataset
@@ -45,9 +50,9 @@ function trainClassANN(topology::AbstractArray{<:Int,1},
 
     # Crear la RNA
     ann = buildClassANN(numInputs, topology, numOutputs; transferFunctions=transferFunctions)
-    
+
     # Definir la función de pérdida
-    loss(x, y) = Flux.Losses.mse(ann(x), y)
+    loss(x, y) = Flux.Losses.binarycrossentropy(ann(x), y)
 
     # Inicializar historial de pérdidas
     lossHistory = Float32[loss(inputs', targets')]
@@ -103,7 +108,8 @@ function trainClassANN(topology::AbstractArray{<:Int,1},
 
     # Devolver la mejor RNA y los historiales de pérdida
     return (bestAnn, lossHistory, valLossHistory, testLossHistory)
-end;
+end
+
 
 
 function trainClassANN(topology::AbstractArray{<:Int,1},
