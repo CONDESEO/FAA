@@ -1,6 +1,7 @@
 using Statistics
 using Flux
 using Flux.Losses
+using Flux.Optimise: Adam
 import Random
 
 
