@@ -674,54 +674,63 @@ function ANNCrossValidation(
     num_classes = length(classes)
     one_hot_targets = oneHotEncoding(targets, classes)
     
-    num_folds = maximum(crossValidationIndices)  # El número de folds
+    num_folds = maximum(crossValidationIndices)  
 
     # Inicializar vectores para métricas
-    accuracies = zeros(num_folds)
-    error_rates = zeros(num_folds)
-    recalls = zeros(num_folds)
-    specificities = zeros(num_folds)
-    precisions = zeros(num_folds)
-    npvs = zeros(num_folds)
-    f1_scores = zeros(num_folds)
-    cm = zeros(Float64, num_classes, num_classes, num_folds)  # Matriz de confusión
+    accuracies = zeros(Float64, num_folds)
+    error_rates = zeros(Float64, num_folds)
+    recalls = zeros(Float64, num_folds)
+    specificities = zeros(Float64, num_folds)
+    precisions = zeros(Float64, num_folds)
+    npvs = zeros(Float64, num_folds)
+    f1_scores = zeros(Float64, num_folds)
+    cm = zeros(Float64, num_classes, num_classes)  
 
     # k-fold cross-validation
-    for i in 1:num_folds
-        # Separar índices de test y entrenamiento
-        test_indices = findall(x -> x == i, crossValidationIndices)
-        train_indices = findall(x -> x != i, crossValidationIndices)
-    
-        if validationRatio > 0
-            real_ratio = validationRatio / (1 - 1/num_folds)
-            train_indices_relative, val_indices_relative = holdOut(length(train_indices), real_ratio)
-            val_indices = train_indices[val_indices_relative]
-            train_indices = train_indices[train_indices_relative]
-            validationInputs = inputs[val_indices, :]
-            validationTargets = one_hot_targets[val_indices, :]
-        else
-            val_indices = Int[]
-            validationInputs = Array{Float64, 2}(undef, 0, size(inputs, 2))
-            validationTargets = Array{Bool, 2}(undef, 0, size(one_hot_targets, 2))
-        end
+    for fold in 1:num_folds
 
-        # Extraer datos de entrenamiento y prueba correctamente
+        test_indices = findall(crossValidationIndices .== fold)
+        train_indices = findall(crossValidationIndices .!= fold)
+
         trainingInputs = inputs[train_indices, :]
         trainingTargets = one_hot_targets[train_indices, :]
         testInputs = inputs[test_indices, :]
         testTargets = one_hot_targets[test_indices, :]
 
+         if validationRatio > 0
+            ratio_real = validationRatio / (1 - length(test_indices) / length(crossValidationIndices))
+            
+            train_indices, val_indices = holdOut(size(trainingInputs, 1), ratio_real)
+        
+            validationInputs, validationTargets = trainingInputs[val_indices, :], trainingTargets[val_indices, :]
+            trainingInputs, trainingTargets = trainingInputs[train_indices, :], trainingTargets[train_indices, :]
+        else
+            validationInputs = Array{Float64, 2}(undef, 0, size(trainingInputs, 2))
+            validationTargets = Array{Bool, 2}(undef, 0, size(trainingTargets, 2)) 
+        end
+        
+        accuracies_exe = zeros(Float64, numExecutions)
+        error_rates_exe = zeros(Float64, numExecutions)
+        recalls_exe = zeros(Float64, numExecutions)
+        specificities_exe = zeros(Float64, numExecutions)
+        precisions_exe = zeros(Float64, numExecutions)
+        npvs_exe = zeros(Float64, numExecutions)
+        f1_scores_exe = zeros(Float64, numExecutions)
+        cm_exe = zeros(Float64, num_classes, num_classes, numExecutions)
+        
         # Ejecutar el entrenamiento numExecutions veces
-        for _ in 1:numExecutions
+        for exe in 1:numExecutions
             # Entrenar el modelo incluyendo validación y test
-            model, _ = trainClassANN(
+            model, _, _, _= trainClassANN(
                 topology, 
                 (trainingInputs, trainingTargets);
                 validationDataset = (validationInputs, validationTargets),
                 testDataset = (testInputs, testTargets),
                 transferFunctions = transferFunctions,
                 maxEpochs = maxEpochs,
-                learningRate = learningRate
+                minLoss = minLoss,
+                learningRate = learningRate,
+                maxEpochsVal = maxEpochsVal
             )
 
             # Evaluar en test
@@ -729,46 +738,46 @@ function ANNCrossValidation(
             acc, err, recall, specificity, precision, npv, f1_score, cm_iter = confusionMatrix(predictions, testTargets)
 
             # Almacenar métricas
-            accuracies[i] += acc / numExecutions
-            error_rates[i] += err / numExecutions
-            recalls[i] += recall / numExecutions
-            specificities[i] += specificity / numExecutions
-            precisions[i] += precision / numExecutions
-            npvs[i] += npv / numExecutions
-            f1_scores[i] += f1_score / numExecutions
-            cm[:, :, i] += cm_iter 
+            accuracies_exe[exe] = Float64(acc)
+            error_rates_exe[exe] = Float64(err)
+            recalls_exe[exe] = Float64(recall)
+            specificities_exe[exe] = Float64(specificity)
+            precisions_exe[exe] = Float64(precision)
+            npvs_exe[exe] = Float64(npv)
+            f1_scores_exe[exe] = Float64(f1_score)
+            cm_exe[:,:,exe] = Float64.(cm_iter)
+
         end
+
+
+        accuracies[fold] = mean(accuracies_exe)
+        error_rates[fold] = mean(error_rates_exe)
+        recalls[fold] = mean(recalls_exe)
+        specificities[fold] = mean(specificities_exe)
+        npvs[fold] = mean(npvs_exe)
+        precisions[fold] = mean(precisions_exe)
+        f1_scores[fold] = mean(f1_scores_exe)
+        cm_mean = mean(cm_exe, dims=3)[:,:,1]
+        cm .+= cm_mean
     end
 
-    # Calcular la media y desviación estándar de las métricas
-    function compute_stats(values)
-        return (mean(values), std(values))
-    end
+    
+    println("Mean and standard deviation of metrics:")
+    println("Accuracy: ", mean(accuracies), " ± ", std(accuracies))
+    println("Error rate: ", mean(error_rates), " ± ", std(error_rates))
+    println("Recall: ", mean(recalls), " ± ", std(recalls))
+    println("Specificity: ", mean(specificities), " ± ", std(specificities))
+    println("Precision: ", mean(precisions), " ± ", std(precisions))
+    println("NPV: ", mean(npvs), " ± ", std(npvs))
+    println("F1-score: ", mean(f1_scores), " ± ", std(f1_scores))
 
-    accuracy_stats = compute_stats(accuracies)
-    error_rate_stats = compute_stats(error_rates)
-    recall_stats = compute_stats(recalls)
-    specificity_stats = compute_stats(specificities)
-    npv_stats = compute_stats(npvs)
-    precision_stats = compute_stats(precisions)
-    f1_score_stats = compute_stats(f1_scores)
-
-    # Promediar la matriz de confusión global
-    cm_mean = mean(cm, dims=3)
-
-    println("Accuracy: $(accuracy_stats[1]) ± $(accuracy_stats[2])")
-    println("Error rate: $(error_rate_stats[1]) ± $(error_rate_stats[2])")
-    println("Recall: $(recall_stats[1]) ± $(recall_stats[2])")
-    println("Specificity: $(specificity_stats[1]) ± $(specificity_stats[2])")
-    println("Precision: $(precision_stats[1]) ± $(precision_stats[2])")
-    println("NPV: $(npv_stats[1]) ± $(npv_stats[2])")
-    println("F1 Score: $(f1_score_stats[1]) ± $(f1_score_stats[2])")
-    println("Confusion Matrix:")
-    println(cm_mean)
-
-    return (
-        accuracy_stats, error_rate_stats, recall_stats,
-        specificity_stats, precision_stats, npv_stats,
-        f1_score_stats, cm_mean
-    )
+    return ((mean(accuracies), std(accuracies)),
+            (mean(error_rates), std(error_rates)),
+            (mean(recalls), std(recalls)),
+            (mean(specificities), std(specificities)),
+            (mean(precisions), std(precisions)),
+            (mean(npvs), std(npvs)),
+            (mean(f1_scores), std(f1_scores)),
+            cm)
+    
 end
