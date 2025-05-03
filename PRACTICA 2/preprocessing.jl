@@ -1,80 +1,78 @@
 using CSV
 using DataFrames
-include("funciones.jl")  # Asegúrate de tener oneHotEncoding y normalizeMinMax! definidos ahí
+using StatsBase
+include("funciones.jl")  # Asegúrate de que contiene oneHotEncoding y normalizeMinMax!
 
 # -------------------------------
-# Cargar el dataset
+# Cargar CSV
 # -------------------------------
 df = CSV.read("atp_tennis.csv", DataFrame)
 
-# Eliminar columnas que no se usarán
-select!(df, Not(["Tournament", "Date", "Player_1", "Player_2", "Score"]))
+# -------------------------------
+# Selección de columnas a usar
+# -------------------------------
+# Columnas a conservar: Series, Court, Surface, Round, Best of,
+# Player_1, Player_2, Rank_1, Rank_2, Pts_1, Pts_2, Odd_1, Odd_2, Winner
+keep_cols = ["Series", "Court", "Surface", "Round", "Best of",
+             "Player_1", "Player_2", "Rank_1", "Rank_2",
+             "Pts_1", "Pts_2", "Odd_1", "Odd_2", "Winner"]
+
+df = df[:, keep_cols]
 
 # -------------------------------
-# Definir columnas categóricas y numéricas
+# Filtrar por los 100 jugadores más frecuentes
 # -------------------------------
-cat_cols = ["Series", "Court", "Surface", "Round", "Best of"]
-num_cols = ["Rank_1", "Rank_2", "Pts_1", "Pts_2", "Odd_1", "Odd_2"]
-target_col = "Winner"
+all_players = vcat(df.Player_1, df.Player_2)
+top_players = sort(collect(countmap(all_players)), by=x -> -x[2])[1:100]
+top_players_set = Set([p[1] for p in top_players])
+
+df = filter(row -> row.Player_1 in top_players_set && row.Player_2 in top_players_set, df)
 
 # -------------------------------
-# Arreglar valores anómalos en Odds
+# Reparar odds inválidas
 # -------------------------------
 for col in ["Odd_1", "Odd_2"]
     df[!, col] = map(x -> try
-        val = parse(Float32, string(x))
-        (val < 0 || val > 100) ? 1.0f0 : val
-    catch
-        1.0f0
-    end, df[!, col])
+            val = parse(Float64, string(x))
+            (val < 0.0 || val > 100.0) ? 1.0 : val
+        catch
+            1.0
+        end, df[!, col])
 end
 
 # -------------------------------
-# Extraer targets y eliminarlos del dataframe
+# Separar entradas y salidas
 # -------------------------------
-raw_targets = df[!, target_col]
-select!(df, Not(target_col))
+raw_targets = df.Winner
+select!(df, Not(:Winner))
 
 # -------------------------------
-# Codificar categóricas
+# Convertir todas las columnas a string
 # -------------------------------
-encoded_cats = hcat([oneHotEncoding(df[!, col]) for col in cat_cols]...)
-
-# -------------------------------
-# Procesar numéricas (parsear y stackear)
-# -------------------------------
-function safe_parse_num(col)
-    return map(x -> try
-        parse(Float32, string(x))
-    catch
-        NaN32
-    end, col)
+for col in names(df)
+    df[!, col] = string.(df[!, col])
 end
 
-numeric_data = hcat([safe_parse_num(df[!, col]) for col in num_cols]...)
-
-# Normalizamos
-normalizeMinMax!(numeric_data)
+# -------------------------------
+# Codificar entradas
+# -------------------------------
+encoded_inputs = hcat([oneHotEncoding(df[!, col]) for col in names(df)]...)
+inputs = Float32.(encoded_inputs)
 
 # -------------------------------
-# Concatenar todo y convertir
+# Codificar salidas
 # -------------------------------
-inputs = Float32.(hcat(encoded_cats, numeric_data))
 targets = oneHotEncoding(raw_targets)
 
 # -------------------------------
-# Info
+# Normalizar últimos 6 atributos numéricos
+# (Rank_1, Rank_2, Pts_1, Pts_2, Odd_1, Odd_2)
+num_cols = 6
+normalizeMinMax!(inputs[:, end - num_cols + 1:end])
+
 # -------------------------------
-println("✔️ Preprocesamiento terminado")
+# Confirmación y muestra
+# -------------------------------
+println("✔️ Preprocesamiento completo")
 println("Tamaño entradas: ", size(inputs))
 println("Tamaño salidas: ", size(targets))
-
-println("\n🧩 Variables categóricas codificadas:")
-for col in cat_cols
-    println(col, " => ", length(unique(df[!, col])))
-end
-
-println("\n📈 Primeras 5 filas del dataset (entrada):")
-for i in 1:5
-    println(inputs[i, :])
-end
