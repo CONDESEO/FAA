@@ -15,13 +15,13 @@ CSV.write("indices_cv5.csv", DataFrame(fold = folds))
 # Definir configuraciones para cada modelo
 model_configs = [
     # Redes neuronales
-    (:ANN, Dict("topology" => [32], "learningRate" => 0.01, "minLoss" => 0.005, "numExecutions" => 1)),
-    (:ANN, Dict("topology" => [64], "learningRate" => 0.01, "minLoss" => 0.005, "numExecutions" => 1)),
-    (:ANN, Dict("topology" => [32, 16], "learningRate" => 0.005, "minLoss" => 0.005, "numExecutions" => 1)),
-    (:ANN, Dict("topology" => [64, 32], "learningRate" => 0.005, "minLoss" => 0.005, "numExecutions" => 1)),
-    (:ANN, Dict("topology" => [128, 64], "learningRate" => 0.001, "minLoss" => 0.005, "numExecutions" => 1)),
-    (:ANN, Dict("topology" => [32, 8], "learningRate" => 0.01, "minLoss" => 0.005, "numExecutions" => 1)),
-    (:ANN, Dict("topology" => [64, 16], "learningRate" => 0.005, "minLoss" => 0.005, "numExecutions" => 1)),
+    (:ANN, Dict("topology" => [32], "learningRate" => 0.01, "minLoss" => 0.005)),
+    (:ANN, Dict("topology" => [64], "learningRate" => 0.01, "minLoss" => 0.005)),
+    (:ANN, Dict("topology" => [32, 16], "learningRate" => 0.005, "minLoss" => 0.005)),
+    (:ANN, Dict("topology" => [64, 32], "learningRate" => 0.005, "minLoss" => 0.005)),
+    (:ANN, Dict("topology" => [128, 64], "learningRate" => 0.001, "minLoss" => 0.005)),
+    (:ANN, Dict("topology" => [32, 8], "learningRate" => 0.01, "minLoss" => 0.005)),
+    (:ANN, Dict("topology" => [64, 16], "learningRate" => 0.005, "minLoss" => 0.005)),
 
 
     # SVM

@@ -763,9 +763,9 @@ function modelCrossValidation(
                     coef0  = Float64(get(modelHyperparameters, "coef0", -1))
                 )
             elseif modelType == :DecisionTreeClassifier
-                DTClassifier(max_depth = modelHyperparameters["max_depth"], rng=Random.MersenneTwister(1))
+                DecisionTreeClassifier(max_depth = modelHyperparameters["max_depth"], rng=Random.MersenneTwister(1))
             elseif modelType == :KNeighborsClassifier
-                kNNClassifier(K = modelHyperparameters["n_neighbors"])
+                KNNClassifier(K = modelHyperparameters["n_neighbors"])
             else
                 error("Unknown model $modelType")
             end

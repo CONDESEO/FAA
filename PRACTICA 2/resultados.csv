@@ -1,0 +1,36 @@
+Modelo,Parametros,AccuracyMedia,AccuracyStd
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [32], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.5,0.0325
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [64], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.5078,0.0475
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [32, 16], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.492,0.0467
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [64, 32], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.4851,0.0417
+ANN,"Dict{String, Any}(""learningRate"" => 0.001, ""topology"" => [128, 64], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.5038,0.0374
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [32, 8], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.5073,0.0478
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [64, 16], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.511,0.04
+SVC,"Dict{String, Any}(""C"" => 0.01, ""kernel"" => ""linear"")",0.452,0.0283
+SVC,"Dict{String, Any}(""C"" => 0.1, ""kernel"" => ""linear"")",0.7064,0.0996
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => ""linear"")",0.67,0.0707
+SVC,"Dict{String, Any}(""C"" => 0.1, ""kernel"" => ""rbf"")",0.3335,0.0077
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => ""rbf"")",0.3335,0.0077
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => ""poly"", ""degree"" => 2)",0.3335,0.0077
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => ""poly"", ""degree"" => 3)",0.3335,0.0077
+SVC,"Dict{String, Any}(""C"" => 0.5, ""kernel"" => ""sigmoid"")",0.3335,0.0077
+DecisionTreeClassifier,"Dict(""max_depth"" => 2)",0.4894,0.0327
+DecisionTreeClassifier,"Dict(""max_depth"" => 4)",0.6112,0.0428
+DecisionTreeClassifier,"Dict(""max_depth"" => 6)",0.652,0.0367
+DecisionTreeClassifier,"Dict(""max_depth"" => 8)",0.6411,0.0475
+DecisionTreeClassifier,"Dict(""max_depth"" => 10)",0.656,0.0521
+DecisionTreeClassifier,"Dict(""max_depth"" => 12)",0.6705,0.038
+KNeighborsClassifier,"Dict(""n_neighbors"" => 1)",0.5371,0.0325
+KNeighborsClassifier,"Dict(""n_neighbors"" => 3)",0.5852,0.0255
+KNeighborsClassifier,"Dict(""n_neighbors"" => 5)",0.6289,0.0543
+KNeighborsClassifier,"Dict(""n_neighbors"" => 7)",0.6362,0.0575
+KNeighborsClassifier,"Dict(""n_neighbors"" => 9)",0.6328,0.0614
+KNeighborsClassifier,"Dict(""n_neighbors"" => 11)",0.6213,0.0813
+DoME,"Dict(""maximumNodes"" => 2)",0.3335,0.0077
+DoME,"Dict(""maximumNodes"" => 3)",0.5072,0.0398
+DoME,"Dict(""maximumNodes"" => 4)",0.5072,0.0398
+DoME,"Dict(""maximumNodes"" => 5)",0.5036,0.037
+DoME,"Dict(""maximumNodes"" => 6)",0.5036,0.037
+DoME,"Dict(""maximumNodes"" => 8)",0.648,0.0547
+DoME,"Dict(""maximumNodes"" => 10)",0.6409,0.053
+DoME,"Dict(""maximumNodes"" => 12)",0.6558,0.09

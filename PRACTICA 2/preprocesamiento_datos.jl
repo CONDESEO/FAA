@@ -19,7 +19,7 @@ df = df[:, keep_cols]
 # Filtrar por los 100 jugadores más frecuentes
 # -------------------------------
 all_players = vcat(df.Player_1, df.Player_2)
-top_players = sort(collect(countmap(all_players)), by=x -> -x[2])[1:10]
+top_players = sort(collect(countmap(all_players)), by=x -> -x[2])[1:30]
 top_players_set = Set(p[1] for p in top_players)
 
 df = filter(row -> row.Player_1 in top_players_set && row.Player_2 in top_players_set, df)

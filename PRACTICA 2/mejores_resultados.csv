@@ -1,0 +1,6 @@
+Modelo,Parametros,AccuracyMedia,AccuracyStd
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [64, 16], ""numExecutions"" => 1, ""minLoss"" => 0.005)",0.511,0.04
+SVC,"Dict{String, Any}(""C"" => 0.1, ""kernel"" => ""linear"")",0.7064,0.0996
+DecisionTreeClassifier,"Dict(""max_depth"" => 12)",0.6705,0.038
+KNeighborsClassifier,"Dict(""n_neighbors"" => 7)",0.6362,0.0575
+DoME,"Dict(""maximumNodes"" => 12)",0.6558,0.09
