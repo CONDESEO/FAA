@@ -752,7 +752,7 @@ function modelCrossValidation(
             model = if modelType == :SVC
                 kernel = get(modelHyperparameters, "kernel", "linear")
                 @assert kernel in ["linear", "poly", "rbf", "sigmoid"]
-                SVMClassifier(
+                SVC(
                     kernel = kernel == "linear"  ? LIBSVM.Kernel.Linear :
                              kernel == "rbf"     ? LIBSVM.Kernel.RadialBasis :
                              kernel == "poly"    ? LIBSVM.Kernel.Polynomial :

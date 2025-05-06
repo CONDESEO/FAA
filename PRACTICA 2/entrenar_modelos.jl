@@ -4,7 +4,7 @@ using Random
 using MLJ
 using LIBSVM, MLJLIBSVMInterface
 using NearestNeighborModels, MLJDecisionTreeInterface
-using MLJLIBSVMInterface: SVMClassifier
+using MLJLIBSVMInterface: SVC
 
 include("modelo_utils.jl")
 
