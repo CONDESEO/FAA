@@ -8,17 +8,11 @@ using MLJLIBSVMInterface: SVMClassifier
 
 include("modelo_utils.jl")
 
-# 1. Semilla de reproducibilidad
-seed!(1234)
-
-# 2. Cargar los datos preprocesados
-include("preprocesamiento_datos.jl")
-
-# 3. Generar o cargar índices de validación cruzada
+# Generar o cargar índices de validación cruzada
 folds = crossvalidation(raw_targets, 5)
 CSV.write("indices_cv5.csv", DataFrame(fold = folds))
 
-# 4. Definir configuraciones para cada modelo
+# Definir configuraciones para cada modelo
 model_configs = [
     # Redes neuronales
     (:ANN, Dict("topology" => [32], "learningRate" => 0.01, "minLoss" => 0.005, "numExecutions" => 1)),
@@ -67,7 +61,7 @@ model_configs = [
     (:DoME, Dict("maximumNodes" => 12))
 ]
 
-# 5. Ejecutar experimentos y guardar resultados
+# Ejecutar experimentos y guardar resultados
 resultados = DataFrame(
     Modelo = String[],
     Parametros = String[],
@@ -75,10 +69,10 @@ resultados = DataFrame(
     AccuracyStd = Float64[]
 )
 
-println("🧠 Entrenando modelos y evaluando configuraciones...")
+println("Entrenando modelos y evaluando configuraciones...")
 
 for (modelo, config) in model_configs
-    println("\n🔧 Evaluando $modelo con parámetros: $(config)")
+    println("\n Evaluando $modelo con parámetros: $(config)")
     acc_stats, _, _, _, _, _, _, _ = modelCrossValidation(modelo, config, (inputs, raw_targets), folds)
     push!(resultados, (
         string(modelo),
@@ -89,4 +83,4 @@ for (modelo, config) in model_configs
 end
 
 CSV.write("resultados.csv", resultados)
-println("✅ Resultados guardados en resultados.csv")
+println("Resultados guardados en resultados.csv")

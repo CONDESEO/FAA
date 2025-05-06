@@ -9,4 +9,4 @@ cv_idx = crossvalidation(targets, 5)
 # Guarda en CSV
 CSV.write("indices_cv5.csv", DataFrame(fold=cv_idx))
 
-println("✅ indices_cv5.csv generado correctamente.")
+println("indices_cv5.csv generado correctamente.")
