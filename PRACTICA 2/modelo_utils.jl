@@ -2,7 +2,10 @@
 # Paquetes requeridos para todas las funciones
 # -------------------------------------------------------------------------
 
+using CUDA
+using CSV, DataFrames, Random
 using Statistics           # Para funciones estadísticas (mean, std, etc.)
+using StatsBase
 using Flux                 # Para construir y entrenar redes neuronales
 using Flux.Losses          # Para funciones de pérdida como crossentropy
 using Random               # Para aleatoriedad en Hold-Out y CV
@@ -162,43 +165,50 @@ end
 
 # Entrena una RNA con entrenamiento simple
 function trainClassANN(topology::AbstractArray{<:Int,1},
-    dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
+    dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}; 
     transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
     maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01)
 
-inputs, targets = dataset
-@assert size(inputs,1) == size(targets,1)
-inputs = Float32.(inputs)
-ann = buildClassANN(size(inputs,2), topology, size(targets,2), transferFunctions=transferFunctions)
+    inputs, targets = dataset
+    @assert size(inputs,1) == size(targets,1)
 
-loss(model, x, y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x), y) : Losses.crossentropy(model(x), y)
-trainingLosses = Float32[]
-numEpoch = 0
-trainingLoss = loss(ann, inputs', targets')
-push!(trainingLosses, trainingLoss)
-println("Epoch ", numEpoch, ": loss: ", trainingLoss)
+    inputs = gpu(Float32.(inputs))
+    targets = gpu(Float32.(targets))
 
-opt_state = Flux.setup(Adam(learningRate), ann)
+    ann = buildClassANN(size(inputs,2), topology, size(targets,2), transferFunctions=transferFunctions)
+    ann = gpu(ann)  # ⚠️ Esto debe ir ANTES de calcular la loss
 
-while (numEpoch < maxEpochs) && (trainingLoss > minLoss)
-Flux.train!(loss, ann, [(inputs', targets')], opt_state)
-numEpoch += 1
-trainingLoss = loss(ann, inputs', targets')
-push!(trainingLosses, trainingLoss)
-println("Epoch ", numEpoch, ": loss: ", trainingLoss)
+    loss(model, x, y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x), y) : Losses.crossentropy(model(x), y)
+    
+    trainingLosses = Float32[]
+    numEpoch = 0
+    trainingLoss = loss(ann, inputs', targets')
+    push!(trainingLosses, Float32(cpu(trainingLoss)))  # CPU para poder imprimir/guardar
+    
+    println("Epoch ", numEpoch, ": loss: ", trainingLoss)
+
+    opt_state = Flux.setup(Adam(learningRate), ann)
+
+    while (numEpoch < maxEpochs) && (trainingLoss > minLoss)
+        Flux.train!(loss, ann, [(inputs', targets')], opt_state)
+        numEpoch += 1
+        trainingLoss = loss(ann, inputs', targets')
+        push!(trainingLosses, Float32(cpu(trainingLoss)))  # CPU para almacenar
+        println("Epoch ", numEpoch, ": loss: ", trainingLoss)
+    end
+
+    return (ann, trainingLosses)
 end
 
-return (ann, trainingLosses)
-end
-
-# Versión sobrecargada para targets booleanos en vector
+# Versión para vector
 trainClassANN(topology::AbstractArray{<:Int,1},
-dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}};
-transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
-maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01) =
-trainClassANN(topology, (dataset[1], reshape(dataset[2], :, 1));
-transferFunctions=transferFunctions,
-maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
+    dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}; 
+    transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
+    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01) =
+    trainClassANN(topology, (dataset[1], reshape(dataset[2], :, 1));
+        transferFunctions=transferFunctions,
+        maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
+
 
 
 # -------------------------------------------------------------------------
@@ -225,98 +235,92 @@ end
 
 # Entrena una RNA con posibilidad de validación y test
 function trainClassANN(topology::AbstractArray{<:Int,1},
-                       trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
-                       validationDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(
-                           Array{eltype(trainingDataset[1]),2}(undef, 0, size(trainingDataset[1],2)),
-                           falses(0, size(trainingDataset[2],2))),
-                       testDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(
-                           Array{eltype(trainingDataset[1]),2}(undef, 0, size(trainingDataset[1],2)),
-                           falses(0, size(trainingDataset[2],2))),
-                       transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
-                       maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20)
+    trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
+    validationDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(
+        Array{eltype(trainingDataset[1]),2}(undef, 0, size(trainingDataset[1],2)),
+        falses(0, size(trainingDataset[2],2))),
+    testDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(
+        Array{eltype(trainingDataset[1]),2}(undef, 0, size(trainingDataset[1],2)),
+        falses(0, size(trainingDataset[2],2))),
+    transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
+    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20)
 
-    trainingInputs, trainingTargets = trainingDataset
-    validationInputs, validationTargets = validationDataset
-    testInputs, testTargets = testDataset
+# Datos originales
+trainingInputs, trainingTargets = trainingDataset
+validationInputs, validationTargets = validationDataset
+testInputs, testTargets = testDataset
 
-    @assert size(trainingInputs,1) == size(trainingTargets,1)
-    @assert size(validationInputs,1) == size(validationTargets,1)
-    @assert size(testInputs,1) == size(testTargets,1)
+# Comprobaciones de tamaño
+@assert size(trainingInputs,1) == size(trainingTargets,1)
+@assert size(validationInputs,1) == size(validationTargets,1)
+@assert size(testInputs,1) == size(testTargets,1)
 
-    !isempty(validationInputs) && @assert size(trainingInputs,2) == size(validationInputs,2)
-    !isempty(testInputs)       && @assert size(trainingInputs,2) == size(testInputs,2)
-    !isempty(validationTargets) && @assert size(trainingTargets,2) == size(validationTargets,2)
-    !isempty(testTargets)       && @assert size(trainingTargets,2) == size(testTargets,2)
+# Normalización de dimensiones
+!isempty(validationInputs) && @assert size(trainingInputs,2) == size(validationInputs,2)
+!isempty(testInputs)       && @assert size(trainingInputs,2) == size(testInputs,2)
+!isempty(validationTargets) && @assert size(trainingTargets,2) == size(validationTargets,2)
+!isempty(testTargets)       && @assert size(trainingTargets,2) == size(testTargets,2)
 
-    trainingInputs = Float32.(trainingInputs)
-    validationInputs = Float32.(validationInputs)
-    testInputs = Float32.(testInputs)
+# PASAR TODO A GPU
+trainingInputs = gpu(Float32.(trainingInputs))
+trainingTargets = gpu(Float32.(trainingTargets))
+validationInputs = gpu(Float32.(validationInputs))
+validationTargets = gpu(Float32.(validationTargets))
+testInputs = gpu(Float32.(testInputs))
+testTargets = gpu(Float32.(testTargets))
 
-    ann = buildClassANN(size(trainingInputs,2), topology, size(trainingTargets,2); transferFunctions=transferFunctions)
-    loss(model, x, y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x), y) : Losses.crossentropy(model(x), y)
+# Modelo en GPU
+ann = buildClassANN(size(trainingInputs,2), topology, size(trainingTargets,2); transferFunctions=transferFunctions)
+ann = gpu(ann)
 
-    trainingLosses = Float32[]
-    validationLosses = Float32[]
-    testLosses = Float32[]
-    numEpoch = 0
+# Función de pérdida
+loss(model, x, y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x), y) : Losses.crossentropy(model(x), y)
 
-    function calculateLossValues()
-        trainLoss = loss(ann, trainingInputs', trainingTargets')
-        valLoss = isempty(validationInputs) ? NaN : loss(ann, validationInputs', validationTargets')
-        testLoss = isempty(testInputs) ? NaN : loss(ann, testInputs', testTargets')
-        push!(trainingLosses, trainLoss)
-        !isempty(validationInputs) && push!(validationLosses, valLoss)
-        !isempty(testInputs) && push!(testLosses, testLoss)
-        return (trainLoss, valLoss, testLoss)
-    end
+trainingLosses = Float32[]
+validationLosses = Float32[]
+testLosses = Float32[]
+numEpoch = 0
 
-    (trainingLoss, validationLoss, _) = calculateLossValues()
-    if isempty(validationInputs); maxEpochsVal = Inf; end
-
-    numEpochsVal = 0
-    bestValLoss = validationLoss
-    bestANN = deepcopy(ann)
-    opt_state = Flux.setup(Adam(learningRate), ann)
-
-    while (numEpoch < maxEpochs) && (trainingLoss > minLoss) && (numEpochsVal < maxEpochsVal)
-        Flux.train!(loss, ann, [(trainingInputs', trainingTargets')], opt_state)
-        numEpoch += 1
-        (trainingLoss, validationLoss, _) = calculateLossValues()
-        if !isempty(validationInputs)
-            if validationLoss < bestValLoss
-                bestValLoss = validationLoss
-                numEpochsVal = 0
-                bestANN = deepcopy(ann)
-            else
-                numEpochsVal += 1
-            end
-        end
-    end
-
-    if isempty(validationInputs)
-        bestANN = ann
-    end
-
-    return (bestANN, trainingLosses, validationLosses, testLosses)
+function calculateLossValues()
+trainLoss = loss(ann, trainingInputs', trainingTargets')
+valLoss = isempty(validationInputs) ? NaN : loss(ann, validationInputs', validationTargets')
+testLoss = isempty(testInputs) ? NaN : loss(ann, testInputs', testTargets')
+push!(trainingLosses, Float32(cpu(trainLoss)))
+!isempty(validationInputs) && push!(validationLosses, Float32(cpu(valLoss)))
+!isempty(testInputs) && push!(testLosses, Float32(cpu(testLoss)))
+return (trainLoss, valLoss, testLoss)
 end
 
-# Versión sobrecargada para targets booleanos en vector
-trainClassANN(topology::AbstractArray{<:Int,1},
-              trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}};
-              validationDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}=(
-                  Array{eltype(trainingDataset[1]),2}(undef, 0, size(trainingDataset[1],2)),
-                  falses(0)),
-              testDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}=(
-                  Array{eltype(trainingDataset[1]),2}(undef, 0, size(trainingDataset[1],2)),
-                  falses(0)),
-              transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
-              maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20) =
-    trainClassANN(topology,
-                  (trainingDataset[1], reshape(trainingDataset[2], :, 1));
-                  validationDataset=(validationDataset[1], reshape(validationDataset[2], :, 1)),
-                  testDataset=(testDataset[1], reshape(testDataset[2], :, 1)),
-                  transferFunctions=transferFunctions,
-                  maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate, maxEpochsVal=maxEpochsVal)
+(trainingLoss, validationLoss, _) = calculateLossValues()
+if isempty(validationInputs); maxEpochsVal = Inf; end
+
+numEpochsVal = 0
+bestValLoss = validationLoss
+bestANN = deepcopy(ann)
+opt_state = Flux.setup(Adam(learningRate), ann)
+
+while (numEpoch < maxEpochs) && (trainingLoss > minLoss) && (numEpochsVal < maxEpochsVal)
+Flux.train!(loss, ann, [(trainingInputs', trainingTargets')], opt_state)
+numEpoch += 1
+(trainingLoss, validationLoss, _) = calculateLossValues()
+println("Epoch $numEpoch | Training Loss: $(Float32(cpu(trainingLoss)))")
+if !isempty(validationInputs)
+if validationLoss < bestValLoss
+bestValLoss = validationLoss
+numEpochsVal = 0
+bestANN = deepcopy(ann)
+else
+numEpochsVal += 1
+end
+end
+end
+
+if isempty(validationInputs)
+bestANN = ann
+end
+
+return (bestANN, trainingLosses, validationLosses, testLosses)
+end
 
 
 # -------------------------------------------------------------------------
@@ -667,9 +671,10 @@ function ANNCrossValidation(topology::AbstractArray{<:Int,1},
                     maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
             end
 
-            preds = collect(ann(Float32.(testX'))')  # Predicciones
+            preds = collect(cpu(ann(gpu(Float32.(testX')))))
+
             accs[rep], errs[rep], recs[rep], specs[rep], precs[rep], npvs[rep], f1s[rep], confs[:,:,rep] =
-                confusionMatrix(preds, testY)
+                confusionMatrix(preds', testY)
         end
 
         testAccuracy[fold]    = mean(accs)
@@ -693,7 +698,6 @@ function ANNCrossValidation(topology::AbstractArray{<:Int,1},
 end
 
 
-
 # -------------------------------------------------------------------------
 # VALIDACIÓN CRUZADA GENERAL PARA DIFERENTES MODELOS
 # -------------------------------------------------------------------------
@@ -704,6 +708,7 @@ function modelCrossValidation(
     dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}},
     crossValidationIndices::Array{Int64,1}
 )
+
     (inputs, targets) = dataset
     @assert size(inputs,1) == length(targets)
 
