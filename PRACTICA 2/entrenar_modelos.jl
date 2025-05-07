@@ -6,13 +6,15 @@ using LIBSVM, MLJLIBSVMInterface
 using NearestNeighborModels, MLJDecisionTreeInterface
 using MLJLIBSVMInterface: SVC
 
-include("modelo_utils.jl")
+include("modelo_utils.jl")  # Solo este, el preprocesamiento ya se hizo en main.jl
 
-# Generar o cargar índices de validación cruzada
-folds = crossvalidation(raw_targets, 5)
-CSV.write("indices_cv5.csv", DataFrame(fold = folds))
+# df_filtrado, player_dict, clases y folds ya deben estar definidos desde main.jl
 
-# Definir configuraciones para cada modelo
+# ----------------------------------
+# Configuraciones para cada modelo
+# ----------------------------------
+
+#=
 model_configs = [
     # Redes neuronales
     (:ANN, Dict("topology" => [32], "learningRate" => 0.01, "minLoss" => 0.005)),
@@ -22,7 +24,6 @@ model_configs = [
     (:ANN, Dict("topology" => [128, 64], "learningRate" => 0.001, "minLoss" => 0.005)),
     (:ANN, Dict("topology" => [32, 8], "learningRate" => 0.01, "minLoss" => 0.005)),
     (:ANN, Dict("topology" => [64, 16], "learningRate" => 0.005, "minLoss" => 0.005)),
-
 
     # SVM
     (:SVC, Dict("kernel" => "linear", "C" => 0.01)),
@@ -60,8 +61,21 @@ model_configs = [
     (:DoME, Dict("maximumNodes" => 10)),
     (:DoME, Dict("maximumNodes" => 12))
 ]
+=#
 
-# Ejecutar experimentos y guardar resultados
+model_configs = [
+    (:ANN, Dict("topology" => [16], "learningRate" => 0.01, "minLoss" => 0.005, "numExecutions" => 1)),
+    (:SVC, Dict("kernel" => "linear", "C" => 1.0)),
+    (:DecisionTreeClassifier, Dict("max_depth" => 2)),
+    (:KNeighborsClassifier, Dict("n_neighbors" => 3)),
+    (:DoME, Dict("maximumNodes" => 2))
+]
+
+
+# ----------------------------------
+# Ejecutar los experimentos
+# ----------------------------------
+
 resultados = DataFrame(
     Modelo = String[],
     Parametros = String[],
@@ -71,9 +85,35 @@ resultados = DataFrame(
 
 println("Entrenando modelos y evaluando configuraciones...")
 
+clases = String.(unique(df_filtrado.Winner))  # aseguras que sean Vector{String}
+folds = Int64.(folds)
+
 for (modelo, config) in model_configs
     println("\n Evaluando $modelo con parámetros: $(config)")
-    acc_stats, _, _, _, _, _, _, _ = modelCrossValidation(modelo, config, (inputs, raw_targets), folds)
+    
+    if modelo == :ANN
+        # Preprocesamiento global solo una vez
+        inputs, encoded_targets = procesar_fold(df_filtrado, player_dict, clases; one_hot=true)
+        
+        acc_stats, _, _, _, _, _, _, _ = ANNCrossValidation(
+            config["topology"],                      
+            (inputs, encoded_targets),               
+            folds;                                   
+            numExecutions     = get(config, "numExecutions", 50),
+            transferFunctions = get(config, "transferFunctions", fill(σ, length(config["topology"]))),
+            maxEpochs         = get(config, "maxEpochs", 1000),
+            minLoss           = get(config, "minLoss", 0.0),
+            learningRate      = get(config, "learningRate", 0.01),
+            validationRatio   = get(config, "validationRatio", 0),
+            maxEpochsVal      = get(config, "maxEpochsVal", 20)
+        )
+    else
+        
+        acc_stats, _, _, _, _, _, _, _ = modelCrossValidation(
+            modelo, config, df_filtrado, folds, player_dict, clases
+        )
+    end
+
     push!(resultados, (
         string(modelo),
         repr(config),

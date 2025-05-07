@@ -1,75 +1,70 @@
-include("modelo_utils.jl")  # oneHotEncoding, normalizeMinMax! deben estar aquí
-
 using CSV, DataFrames
+using MLJ
 
-# -------------------------------
-# Cargar CSV
-# -------------------------------
-df = CSV.read("atp_tennis.csv", DataFrame)
+# -----------------------------------------
+# Función de preprocesamiento general
+# -----------------------------------------
+function cargar_y_filtrar_datos()
+    df = CSV.read("atp_tennis.csv", DataFrame)
 
-# -------------------------------
-# Selección de columnas
-# -------------------------------
-keep_cols = ["Series", "Court", "Surface", "Round", "Best of",
-             "Player_1", "Player_2", "Rank_1", "Rank_2",
-             "Pts_1", "Pts_2", "Odd_1", "Odd_2", "Winner"]
-df = df[:, keep_cols]
+    # Convertir columnas numéricas que pueden venir mal tipadas
+    df.Odd_1 = parse.(Float64, replace.(string.(df.Odd_1), "." => ""))
+    df.Odd_2 = parse.(Float64, replace.(string.(df.Odd_2), "." => ""))
 
-# -------------------------------
-# Filtrar por los 100 jugadores más frecuentes
-# -------------------------------
-all_players = vcat(df.Player_1, df.Player_2)
-top_players = sort(collect(countmap(all_players)), by=x -> -x[2])[1:30]
-top_players_set = Set(p[1] for p in top_players)
+    # Eliminar partidos con datos inválidos
+    df = dropmissing(df)
+    df = filter(row -> row.Odd_1 > 0 && row.Odd_2 > 0, df)
 
-df = filter(row -> row.Player_1 in top_players_set && row.Player_2 in top_players_set, df)
+    # Filtrar jugadores más frecuentes
+    jugadores = vcat(df.Player_1, df.Player_2)
+    conteo = countmap(jugadores)
+    top_jugadores = sort(collect(keys(conteo)), by = x -> -conteo[x])[1:20]
+    df = filter(row -> row.Player_1 in top_jugadores && row.Player_2 in top_jugadores, df)
 
-# -------------------------------
-# Reparar odds inválidas
-# -------------------------------
-for col in ["Odd_1", "Odd_2"]
-    df[!, col] = map(x -> try
-            val = parse(Float64, string(x))
-            (val < 0.0 || val > 100.0) ? 1.0 : val
-        catch
-            1.0
-        end, df[!, col])
+    # Generar diccionario de label encoding
+    player_dict = Dict(j => i for (i, j) in enumerate(top_jugadores))
+
+    # El target será uno de los jugadores (ganador)
+    clases = sort(collect(keys(player_dict)))
+
+    return df, player_dict, clases
 end
 
-# -------------------------------
-# Guardar etiquetas originales
-# -------------------------------
-raw_targets = df.Winner
-select!(df, Not(:Winner))  # Eliminar la columna objetivo del DataFrame
+# -----------------------------------------
+# Función de preprocesamiento por fold
+# -----------------------------------------
+function procesar_fold(
+    df_fold::DataFrame,
+    player_dict::Dict{String, Int},
+    clases::Vector{String};
+    one_hot::Bool = false
+)
+    # Label encoding para los jugadores
+    df_fold.Player_1 = map(p -> player_dict[string(p)], df_fold.Player_1)
+    df_fold.Player_2 = map(p -> player_dict[string(p)], df_fold.Player_2)
 
-# -------------------------------
-# Convertir columnas a string (para one-hot)
-# -------------------------------
-for col in names(df)
-    df[!, col] = string.(df[!, col])
+    # Label encoding del ganador
+    y = map(w -> player_dict[string(w)], df_fold.Winner)
+
+    # Selección de variables predictoras
+    X = select(df_fold, Not(["Winner"]))
+    X_encoded = MLJ.table(X)
+
+    if one_hot
+        y_encoded = oneHotEncoding(y, collect(1:length(player_dict)))
+    else
+        y_encoded = y
+    end
+
+    return Matrix(X_encoded), y_encoded
 end
 
-# -------------------------------
-# Codificar entradas
-# -------------------------------
-encoded_inputs = hcat([oneHotEncoding(df[!, col]) for col in names(df)]...)
-inputs = Float32.(encoded_inputs)
 
-# -------------------------------
-# Codificar salidas
-# -------------------------------
-clases = unique(raw_targets)
-targets = oneHotEncoding(raw_targets, clases)
+# -----------------------------------------
+# Cargar los datos una vez
+# -----------------------------------------
 
-# -------------------------------
-# Normalizar las columnas numéricas
-# Las 6 últimas: Rank_1, Rank_2, Pts_1, Pts_2, Odd_1, Odd_2
-num_cols = 6
-normalizeMinMax!(inputs[:, end - num_cols + 1:end])
+global df_filtrado, player_dict, clases = cargar_y_filtrar_datos()
+global raw_targets = df_filtrado.Winner
 
-# -------------------------------
-# Confirmación
-# -------------------------------
-println("✔️ Preprocesamiento completo")
-println("Tamaño entradas: ", size(inputs))
-println("Tamaño salidas: ", size(targets))
+println("✔️ Preprocesamiento inicial completo. Listo para procesar folds.")

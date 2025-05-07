@@ -616,20 +616,23 @@ crossvalidation(targets::AbstractArray{<:Any,1}, k::Int) = crossvalidation(oneHo
 # VALIDACIÓN CRUZADA PARA RNA (ANN)
 # -------------------------------------------------------------------------
 
-function ANNCrossValidation(topology::AbstractArray{<:Int,1},
-    dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}},
-    crossValidationIndices::Array{Int64,1};
+function ANNCrossValidation(
+    topology::AbstractVector{<:Int},
+    dataset::Tuple{AbstractMatrix{<:Real}, AbstractMatrix{<:Real}},
+    crossValidationIndices::Vector{Int};
     numExecutions::Int=50,
-    transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
-    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01,
-    validationRatio::Real=0, maxEpochsVal::Int=20)
+    transferFunctions::AbstractVector{<:Function}=fill(σ, length(topology)),
+    maxEpochs::Int=1000,
+    minLoss::Real=0.0,
+    learningRate::Real=0.01,
+    validationRatio::Real=0,
+    maxEpochsVal::Int=20
+)
 
     (inputs, targets) = dataset
-    @assert size(inputs,1) == length(targets)
-
-    classes = unique(targets)
-    targets = oneHotEncoding(targets, classes)
+    @assert size(inputs, 1) == size(targets, 1)
     numFolds = maximum(crossValidationIndices)
+    num_classes = size(targets, 2)
 
     testAccuracy = zeros(Float64, numFolds)
     testErrorRate = zeros(Float64, numFolds)
@@ -638,13 +641,15 @@ function ANNCrossValidation(topology::AbstractArray{<:Int,1},
     testPrecision = zeros(Float64, numFolds)
     testNPV = zeros(Float64, numFolds)
     testF1 = zeros(Float64, numFolds)
-    testConfMatrix = zeros(length(classes), length(classes))
+    testConfMatrix = zeros(Int, num_classes, num_classes)
 
     for fold in 1:numFolds
         trainX = inputs[crossValidationIndices .!= fold, :]
-        testX = inputs[crossValidationIndices .== fold, :]
+        testX  = inputs[crossValidationIndices .== fold, :]
         trainY = targets[crossValidationIndices .!= fold, :]
-        testY = targets[crossValidationIndices .== fold, :]
+        testY  = targets[crossValidationIndices .== fold, :]
+
+        println("------>Fold $fold → train: $(size(trainX,1)) muestras, $(size(trainX,2)) variables | test: $(size(testX,1)) muestras | target shape: trainY=$(size(trainY)), testY=$(size(testY))")
 
         accs = zeros(Float64, numExecutions)
         errs = zeros(Float64, numExecutions)
@@ -653,27 +658,37 @@ function ANNCrossValidation(topology::AbstractArray{<:Int,1},
         precs = zeros(Float64, numExecutions)
         npvs = zeros(Float64, numExecutions)
         f1s = zeros(Float64, numExecutions)
-        confs = Array{Float64,3}(undef, length(classes), length(classes), numExecutions)
+        confs = Array{Float64,3}(undef, num_classes, num_classes, numExecutions)
 
         for rep in 1:numExecutions
             if validationRatio > 0
-                (idxTrain, idxVal) = holdOut(size(trainX,1), validationRatio * size(inputs,1) / size(trainX,1))
-                ann, = trainClassANN(topology, (trainX[idxTrain,:], trainY[idxTrain,:]),
-                    validationDataset=(trainX[idxVal,:], trainY[idxVal,:]),
-                    testDataset=(testX, testY),
-                    transferFunctions=transferFunctions,
-                    maxEpochs=maxEpochs, minLoss=minLoss,
-                    learningRate=learningRate, maxEpochsVal=maxEpochsVal)
+                (idxTrain, idxVal) = holdOut(size(trainX, 1), validationRatio * size(inputs, 1) / size(trainX, 1))
+                ann, = trainClassANN(
+                    topology,
+                    (trainX[idxTrain, :], trainY[idxTrain, :]),
+                    validationDataset = (trainX[idxVal, :], trainY[idxVal, :]),
+                    testDataset = (testX, testY),
+                    transferFunctions = transferFunctions,
+                    maxEpochs = maxEpochs,
+                    minLoss = minLoss,
+                    learningRate = learningRate,
+                    maxEpochsVal = maxEpochsVal
+                )
             else
-                ann, = trainClassANN(topology, (trainX, trainY),
-                    testDataset=(testX, testY),
-                    transferFunctions=transferFunctions,
-                    maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
+                ann, = trainClassANN(
+                    topology,
+                    (trainX, trainY),
+                    testDataset = (testX, testY),
+                    transferFunctions = transferFunctions,
+                    maxEpochs = maxEpochs,
+                    minLoss = minLoss,
+                    learningRate = learningRate
+                )
             end
 
             preds = collect(cpu(ann(gpu(Float32.(testX')))))
 
-            accs[rep], errs[rep], recs[rep], specs[rep], precs[rep], npvs[rep], f1s[rep], confs[:,:,rep] =
+            accs[rep], errs[rep], recs[rep], specs[rep], precs[rep], npvs[rep], f1s[rep], confs[:, :, rep] =
                 confusionMatrix(preds', testY)
         end
 
@@ -684,7 +699,7 @@ function ANNCrossValidation(topology::AbstractArray{<:Int,1},
         testPrecision[fold]   = mean(precs)
         testNPV[fold]         = mean(npvs)
         testF1[fold]          = mean(f1s)
-        testConfMatrix       += mean(confs, dims=3)[:,:,1]
+        testConfMatrix       += round.(Int, mean(confs, dims=3)[:, :, 1])
     end
 
     return (mean(testAccuracy), std(testAccuracy)),
@@ -705,32 +720,13 @@ end
 function modelCrossValidation(
     modelType::Symbol,
     modelHyperparameters::Dict,
-    dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}},
-    crossValidationIndices::Array{Int64,1}
+    df_filtrado::DataFrame,
+    crossValidationIndices::Vector{Int},
+    player_dict::Dict,
+    clases::Vector{String}
 )
 
-    (inputs, targets) = dataset
-    @assert size(inputs,1) == length(targets)
-
-    if modelType == :ANN
-        return ANNCrossValidation(
-            modelHyperparameters["topology"],
-            dataset, crossValidationIndices;
-            numExecutions     = get(modelHyperparameters, "numExecutions", 50),
-            transferFunctions = get(modelHyperparameters, "transferFunctions", fill(σ, length(modelHyperparameters["topology"]))),
-            maxEpochs         = get(modelHyperparameters, "maxEpochs", 1000),
-            minLoss           = get(modelHyperparameters, "minLoss", 0.0),
-            learningRate      = get(modelHyperparameters, "learningRate", 0.01),
-            validationRatio   = get(modelHyperparameters, "validationRatio", 0),
-            maxEpochsVal      = get(modelHyperparameters, "maxEpochsVal", 20)
-        )
-    end
-
-    # Si no es ANN, pasamos las salidas a string
-    targets = string.(targets)
-    classes = unique(targets)
     numFolds = maximum(crossValidationIndices)
-
     testAccuracy        = zeros(Float64, numFolds)
     testErrorRate       = zeros(Float64, numFolds)
     testRecall          = zeros(Float64, numFolds)
@@ -738,16 +734,21 @@ function modelCrossValidation(
     testPrecision       = zeros(Float64, numFolds)
     testNPV             = zeros(Float64, numFolds)
     testF1              = zeros(Float64, numFolds)
-    testConfMatrix      = zeros(Int, length(classes), length(classes))
+    testConfMatrix      = zeros(Int, length(clases), length(clases))
 
     for fold in 1:numFolds
-        trainX = inputs[crossValidationIndices .!= fold, :]
-        testX  = inputs[crossValidationIndices .== fold, :]
-        trainY = targets[crossValidationIndices .!= fold]
-        testY  = targets[crossValidationIndices .== fold]
+        df_train = df_filtrado[crossValidationIndices .!= fold, :]
+        df_test  = df_filtrado[crossValidationIndices .== fold, :]
+
+        trainX, trainY = procesar_fold(df_train, player_dict, clases)
+        testX, testY   = procesar_fold(df_test, player_dict, clases)
+
+        println("------>Fold $fold → train: $(size(trainX,1)) muestras, $(size(trainX,2)) variables | test: $(size(testX,1)) muestras | target shape: trainY=$(size(trainY)), testY=$(size(testY))")
 
         if modelType == :DoME
             preds = trainClassDoME((trainX, trainY), testX, modelHyperparameters["maximumNodes"])
+        elseif modelType == :ANN
+            error("Las ANN se entrenan por separado usando ANNCrossValidation")
         else
             model = if modelType == :SVC
                 kernel = get(modelHyperparameters, "kernel", "linear")
@@ -773,13 +774,11 @@ function modelCrossValidation(
             mach = machine(model, MLJ.table(trainX), categorical(trainY))
             MLJ.fit!(mach, verbosity=0)
             preds = MLJ.predict(mach, MLJ.table(testX))
-            if modelType != :SVC
-                preds = mode.(preds)
-            end
+            preds = mode.(preds)  # Extraer clase más probable
         end
 
         acc, err, rec, spec, prec, npv, f1, conf =
-            confusionMatrix(preds, testY, classes)
+            confusionMatrix(preds, testY, clases)
 
         testAccuracy[fold]    = acc
         testErrorRate[fold]   = err
