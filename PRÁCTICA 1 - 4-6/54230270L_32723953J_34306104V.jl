@@ -1,299 +1,251 @@
-using Random
+# ----------------------------------------------------------------------------------------------
+# ------------------------------------- Ejercicio 2 --------------------------------------------
+# ----------------------------------------------------------------------------------------------
+
 using Statistics
 using Flux
 using Flux.Losses
-using SymDoME
 
 
+# -------------------------------------------------------------------------
+# Funciones para codificar entradas y salidas categóricas
 
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
+# Funcion para realizar la codificacion, recibe el vector de caracteristicas (uno por patron), y las clases
 function oneHotEncoding(feature::AbstractArray{<:Any,1}, classes::AbstractArray{<:Any,1})
-    numClasses = length(classes)
-    numSamples = length(feature)
-    
-    if (numClasses <= 2)
-        # Si solo hay dos clases, se genera una matriz con una columna
-        oneHotMatrix = reshape(feature .== classes[1], :, 1)
+    # Primero se comprueba que todos los elementos del vector esten en el vector de clases (linea adaptada del final del ejercicio 4)
+    @assert(all([in(value, classes) for value in feature]));
+    numClasses = length(classes);
+    if (numClasses<=2)
+        # Si solo hay dos clases, se devuelve una matriz con una columna
+        oneHot = reshape(feature.==classes[1], :, 1);
     else
-        # Si hay más de dos clases se genera una matriz con una columna por clase
-        oneHotMatrix = convert(BitArray{2}, hcat([instance .== classes for instance in feature]...)')
-    end
-    
-    return oneHotMatrix
+        # Si hay mas de dos clases se devuelve una matriz con una columna por clase
+        # Cualquiera de estos dos tipos (Array{Bool,2} o BitArray{2}) vale perfectamente
+        # oneHot = Array{Bool,2}(undef, size(feature,1), numClasses);
+        # oneHot =  BitArray{2}(undef, size(feature,1), numClasses);
+        # for numClass = 1:numClasses
+        #     oneHot[:,numClass] .= (feature.==classes[numClass]);
+        # end;
+        # Una forma de hacerlo sin bucles sería la siguiente:
+        oneHot = convert(BitArray{2}, hcat([instance.==classes for instance in feature]...)');
+    end;
+    return oneHot;
 end;
-
-function oneHotEncoding(feature::AbstractArray{<:Any,1})
-    classes = unique(feature)
-    return oneHotEncoding(feature, classes)
-end;
-
-function oneHotEncoding(feature::AbstractArray{Bool,1})
-    numSamples = length(feature)
-    oneHotMatrix = zeros(Int, numSamples, 2)
-    
-    for i in 1:numSamples
-        if feature[i]
-            oneHotMatrix[i, 2] = true  # True -> [0, 1]
-        else
-            oneHotMatrix[i, 1] = true  # False -> [1, 0]
-        end
-    end
-    
-    return oneHotMatrix
-end;
+# Esta funcion es similar a la anterior, pero si no es especifican las clases, se toman de la propia variable
+oneHotEncoding(feature::AbstractArray{<:Any,1}) = oneHotEncoding(feature, unique(feature));
+# Sobrecargamos la funcion oneHotEncoding por si acaso pasan un vector de valores booleanos
+#  En este caso, el propio vector ya está codificado, simplemente lo convertimos a una matriz columna
+oneHotEncoding(feature::AbstractArray{Bool,1}) = reshape(feature, :, 1);
+# Cuando se llame a la funcion oneHotEncoding, según el tipo del argumento pasado, Julia realizará
+#  la llamada a la función correspondiente
 
 
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+# -------------------------------------------------------------------------
+# Funciones para calcular los parametros de normalizacion y normalizar
 
+# Para calcular los parametros de normalizacion, segun la forma de normalizar que se desee:
+calculateMinMaxNormalizationParameters(dataset::AbstractArray{<:Real,2}) = ( minimum(dataset, dims=1), maximum(dataset, dims=1) );
+calculateZeroMeanNormalizationParameters(dataset::AbstractArray{<:Real,2}) = ( mean(dataset, dims=1), std(dataset, dims=1) );
 
-function calculateMinMaxNormalizationParameters(dataset::AbstractArray{<:Real,2})
-    MinMaxParameters = (minimum(dataset, dims=1), maximum(dataset, dims=1))
-    return MinMaxParameters
-end;
-
-function calculateZeroMeanNormalizationParameters(dataset::AbstractArray{<:Real,2})
-    ZeroMeanParameters = (mean(dataset, dims=1), std(dataset, dims=1))
-    return ZeroMeanParameters
-end;
-
+# 4 versiones de la funcion para normalizar entre 0 y 1:
+#  - Nos dan los parametros de normalizacion, y se quiere modificar el array de entradas (el nombre de la funcion acaba en '!')
+#  - No nos dan los parametros de normalizacion, y se quiere modificar el array de entradas (el nombre de la funcion acaba en '!')
+#  - Nos dan los parametros de normalizacion, y no se quiere modificar el array de entradas (se crea uno nuevo)
+#  - No nos dan los parametros de normalizacion, y no se quiere modificar el array de entradas (se crea uno nuevo)
 function normalizeMinMax!(dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}})
-    minValues, maxValues = normalizationParameters
-    dataset .= (dataset.- minValues) ./ (maxValues .- minValues)
-    dataset[:, vec(minValues .== maxValues)] .= 0 #Si todos los valores son iguales los ponemos a 0
+    minValues = normalizationParameters[1];
+    maxValues = normalizationParameters[2];
+    dataset .-= minValues;
+    dataset ./= (maxValues .- minValues);
+    # Si hay algun atributo en el que todos los valores son iguales, se pone a 0
+    dataset[:, vec(minValues.==maxValues)] .= 0;
+    return dataset;
 end;
+normalizeMinMax!(dataset::AbstractArray{<:Real,2})                                                              = normalizeMinMax!(     dataset , calculateMinMaxNormalizationParameters(dataset));
+normalizeMinMax( dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}}) = normalizeMinMax!(copy(dataset), normalizationParameters)
+normalizeMinMax( dataset::AbstractArray{<:Real,2})                                                              = normalizeMinMax!(copy(dataset), calculateMinMaxNormalizationParameters(dataset));
 
-function normalizeMinMax!(dataset::AbstractArray{<:Real,2})
-    normalizationParameters = calculateMinMaxNormalizationParameters(dataset)
-    normalizeMinMax!(dataset, normalizationParameters)
-end;
-
-function normalizeMinMax(dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}}) #Usar copy
-    minValues, maxValues = normalizationParameters
-    normalizedDataset = (dataset .-minValues) ./ (maxValues .- minValues)
-    normalizedDataset[:, vec(minValues .== maxValues)] .= 0
-    return normalizedDataset
-end;
-
-function normalizeMinMax(dataset::AbstractArray{<:Real,2}) #Usar copy
-    normalizationParameters = calculateMinMaxNormalizationParameters(dataset)
-    return normalizeMinMax(dataset, normalizationParameters)
-end;
-
+# 4 versiones similares de la funcion para normalizar de media 0:
+#  - Nos dan los parametros de normalizacion, y se quiere modificar el array de entradas (el nombre de la funcion acaba en '!')
+#  - No nos dan los parametros de normalizacion, y se quiere modificar el array de entradas (el nombre de la funcion acaba en '!')
+#  - Nos dan los parametros de normalizacion, y no se quiere modificar el array de entradas (se crea uno nuevo)
+#  - No nos dan los parametros de normalizacion, y no se quiere modificar el array de entradas (se crea uno nuevo)
 function normalizeZeroMean!(dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}})
-    meanValues, stdValues = normalizationParameters
-    dataset .= (dataset.- meanValues) ./ stdValues
-    dataset[:, vec(stdValues .== 0)] .= 0 #Si todos los valores son iguales los ponemos a 0
+    avgValues = normalizationParameters[1];
+    stdValues = normalizationParameters[2];
+    dataset .-= avgValues;
+    dataset ./= stdValues;
+    # Si hay algun atributo en el que todos los valores son iguales, se pone a 0
+    dataset[:, vec(stdValues.==0)] .= 0;
+    return dataset;
 end;
-
-function normalizeZeroMean!(dataset::AbstractArray{<:Real,2})
-    normalizationParameters = calculateZeroMeanNormalizationParameters(dataset)
-    normalizeZeroMean!(dataset, normalizationParameters)
-end;
-
-function normalizeZeroMean(dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}})
-    meanValues, stdValues = normalizationParameters
-    normalizedDataset = (dataset .- meanValues) ./ stdValues
-    normalizedDataset[:, vec(stdValues .== 0)] .= 0
-    return normalizedDataset
-end;
-
-function normalizeZeroMean(dataset::AbstractArray{<:Real,2})
-    normalizedParameters = calculateZeroMeanNormalizationParameters(dataset)
-    return normalizeZeroMean(dataset, normalizedParameters)
-end;
+normalizeZeroMean!(dataset::AbstractArray{<:Real,2})                                                              = normalizeZeroMean!(     dataset , calculateZeroMeanNormalizationParameters(dataset));
+normalizeZeroMean( dataset::AbstractArray{<:Real,2}, normalizationParameters::NTuple{2, AbstractArray{<:Real,2}}) = normalizeZeroMean!(copy(dataset), normalizationParameters)
+normalizeZeroMean( dataset::AbstractArray{<:Real,2})                                                              = normalizeZeroMean!(copy(dataset), calculateZeroMeanNormalizationParameters(dataset));
 
 
-#////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+# -------------------------------------------------------
+# Funcion que permite transformar una matriz de valores reales con las salidas del clasificador o clasificadores en una matriz de valores booleanos con la clase en la que sera clasificada
 
-
-function classifyOutputs(outputs::AbstractArray{<:Real,1}; threshold::Real=0.5)
-    return  outputs .>= threshold
-end;
+classifyOutputs(outputs::AbstractArray{<:Real,1}; threshold::Real=0.5) = outputs.>=threshold;
 
 function classifyOutputs(outputs::AbstractArray{<:Real,2}; threshold::Real=0.5)
-    numCols = size(outputs, 2)
-    if numCols == 1
-        return reshape(classifyOutputs(outputs[:]; threshold=threshold), :, 1)
+    numOutputs = size(outputs, 2);
+    @assert(numOutputs!=2)
+    if numOutputs==1
+        return reshape(classifyOutputs(outputs[:]; threshold=threshold), :, 1);
     else
-        (_, indicesMaxEachInstance) = findmax(outputs, dims=2)
-        classified_outputs = falses(size(outputs))
-        classified_outputs[indicesMaxEachInstance] .= true
-
-        return classified_outputs
-    end
-end
-
-
-
-#///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-function buildClassANN(numInputs::Int, topology::AbstractArray{<:Int,1}, numOutputs::Int; 
-                       transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)))    ann = Chain()
-
-    numInputsLayer = numInputs
-
-    if !isempty(topology)
-        for (i, numOutputsLayer) in enumerate(topology) 
-            ann = Chain(ann..., Dense(numInputsLayer, numOutputsLayer, transferFunctions[i]))  
-            numInputsLayer = numOutputsLayer  
-        end
-    end
-
-    if numOutputs > 2
-        ann = Chain(ann..., Dense(numInputsLayer, numOutputs, identity))  
-        ann = Chain(ann..., softmax )
-    else
-        ann = Chain(ann..., Dense(numInputsLayer, numOutputs, σ))  
-    end
-
-    return ann
-end
-
-function accuracy(outputs::AbstractArray{Bool,1}, targets::AbstractArray{Bool,1})
-    return mean(outputs .== targets)
-end
+        # Miramos donde esta el valor mayor de cada instancia con la funcion findmax
+        (_,indicesMaxEachInstance) = findmax(outputs, dims=2);
+        # Creamos la matriz de valores booleanos con valores inicialmente a false y asignamos esos indices a true
+        outputs = falses(size(outputs));
+        outputs[indicesMaxEachInstance] .= true;
+        # Comprobamos que efectivamente cada patron solo este clasificado en una clase
+        @assert(all(sum(outputs, dims=2).==1));
+        return outputs;
+    end;
+end;
 
 
+# -------------------------------------------------------
+# Funciones para calcular la precision
+
+accuracy(outputs::AbstractArray{Bool,1}, targets::AbstractArray{Bool,1}) = mean(outputs.==targets);
 function accuracy(outputs::AbstractArray{Bool,2}, targets::AbstractArray{Bool,2})
-    numCols = size(outputs, 2)
-
-    if numCols == 1
-        return accuracy(outputs[:,1], targets[:,1])
+    @assert(all(size(outputs).==size(targets)));
+    if (size(targets,2)==1)
+        return accuracy(outputs[:,1], targets[:,1]);
     else
-        comparisonMatrix = outputs .== targets 
-        correctlyClassified = all(comparisonMatrix, dims=2)  
-        return mean(correctlyClassified)
-    end
-end
+        return mean(all(targets .== outputs, dims=2));
+    end;
+end;
 
-
-function accuracy(outputs::AbstractArray{<:Real,1}, targets::AbstractArray{Bool,1}; threshold::Real=0.5)
-    classified_outputs = classifyOutputs(outputs[:]; threshold=threshold)  
-    return accuracy(classified_outputs, targets)
-end
-
-
+accuracy(outputs::AbstractArray{<:Real,1}, targets::AbstractArray{Bool,1}; threshold::Real=0.5) = accuracy(outputs.>=threshold, targets);
 function accuracy(outputs::AbstractArray{<:Real,2}, targets::AbstractArray{Bool,2}; threshold::Real=0.5)
-    numCols = size(outputs, 2)
-
-    if numCols == 1
-        return accuracy(outputs[:,1], targets[:,1]; threshold=threshold)
+    @assert(all(size(outputs).==size(targets)));
+    if (size(targets,2)==1)
+        return accuracy(outputs[:,1], targets[:,1]; threshold=threshold);
     else
-        classified_outputs = classifyOutputs(outputs; threshold=threshold)  
-        return accuracy(classified_outputs, targets)  
-    end
-end
+        return accuracy(classifyOutputs(outputs), targets);
+    end;
+end;
 
 
-#///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+# -------------------------------------------------------
+# Funciones para crear y entrenar una RNA
 
-
-function buildClassANN(numInputs::Int, topology::AbstractArray{<:Int,1}, numOutputs::Int; 
-    transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)))
-    @assert(numOutputs != 2)
-    ann = Chain()
-
-    numInputsLayer = numInputs
-
-    if !isempty(topology)
-        for (i, numOutputsLayer) in enumerate(topology) 
-            ann = Chain(ann..., Dense(numInputsLayer, numOutputsLayer, transferFunctions[i]))  
-            numInputsLayer = numOutputsLayer  
-        end
-    end
-
-    if numOutputs > 2
-        ann = Chain(ann..., Dense(numInputsLayer, numOutputs, identity))  
-        ann = Chain(ann..., softmax )
+function buildClassANN(numInputs::Int, topology::AbstractArray{<:Int,1}, numOutputs::Int; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)))
+    ann=Chain();
+    numInputsLayer = numInputs;
+    for numHiddenLayer in 1:length(topology)
+        numNeurons = topology[numHiddenLayer];
+        ann = Chain(ann..., Dense(numInputsLayer, numNeurons, transferFunctions[numHiddenLayer]));
+        numInputsLayer = numNeurons;
+    end;
+    if (numOutputs == 1)
+        ann = Chain(ann..., Dense(numInputsLayer, 1, σ));
     else
-        ann = Chain(ann..., Dense(numInputsLayer, numOutputs, σ))  
-    end
-
-    return ann
-end
+        ann = Chain(ann..., Dense(numInputsLayer, numOutputs, identity));
+        ann = Chain(ann..., softmax);
+    end;
+    return ann;
+end;
 
 function trainClassANN(topology::AbstractArray{<:Int,1}, dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)), maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01)
-    
-    #definimos entradas y salidas del dataset
-    inputs = dataset[:,1:4]
-    targets = dataset[:,5]
 
-    #convertimos a float para facilitar a Flux
-    inputs = Float32.(inputs) 
-    targets = Float32.(targets)
+    (inputs, targets) = dataset;
 
-    #sacamos las neuronas que deben tener la capa de entrada y salida
-    numInputs = size(inputs, 2)
-    numOutputs = size(targets, 2)
+    # Se supone que tenemos cada patron en cada fila
+    # Comprobamos que el numero de filas (numero de patrones) coincide
+    @assert(size(inputs,1)==size(targets,1));
 
-    #llamamos a la funcion que crea la RNA con la topología
-    ann = buildClassANN(numInputs, topology, numOutputs; transferFunctions=transferFunctions)
+    # Pasamos los datos a Float32
+    inputs = Float32.(inputs);
 
-    lossHistory = Float32[] #guardamos como cambia la pérdida en cada iteración
+    # Creamos la RNA
+    ann = buildClassANN(size(inputs,2), topology, size(targets,2));
 
-    #funcion de pérdida que usamos para entrenar
-    loss(x,y) = Flux.Losses.mse(ann(x),y)
+    # Definimos la funcion de loss
+    loss(model,x,y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x),y) : Losses.crossentropy(model(x),y);
 
-    # Elegimos el optimizador Adam con la tasa de aprendizaje que nos pasaron
-    opt = Flux.Optimise.Adam(learningRate)
+    # Creamos los vectores con los valores de loss y de precision en cada ciclo
+    trainingLosses = Float32[];
 
-    #obtenemos los parámetros de la red
-    ps = Flux.params(ann)
+    # Empezamos en el ciclo 0
+    numEpoch = 0;
+    # Calculamos el loss para el ciclo 0 (sin entrenar nada)
+    trainingLoss = loss(ann, inputs', targets');
+    #  almacenamos el valor de loss y precision en este ciclo
+    push!(trainingLosses, trainingLoss);
+    #  y lo mostramos por pantalla
+    println("Epoch ", numEpoch, ": loss: ", trainingLoss);
 
-    #guardamos el valor de la pérdida antes de empezar el entrenamiento
-    push!(lossHistory, loss(inputs', targets'))
+    opt_state = Flux.setup(Adam(learningRate), ann);
 
+    # Entrenamos hasta que se cumpla una condicion de parada
+    while (numEpoch<maxEpochs) && (trainingLoss>minLoss)
 
-    #bucle que entrena la red maxEpochs iteraciones o hasta que la pérdida sea suficientemente baja  
-    for epoch in 1:maxEpochs
-        Flux.train!(loss,ps,[(inputs',targets')], opt) #entrenamos una vez por iteración
+        # Entrenamos 1 ciclo. Para ello hay que pasar las matrices traspuestas (cada patron en una columna)
+        Flux.train!(loss, ann, [(inputs', targets')], opt_state);
 
-        epochLoss = loss(inputs', targets') #calculamos pérdida después de entrenar
-        push!(lossHistory, epochLoss) #guardamos la pérdida
+        # Aumentamos el numero de ciclo en 1
+        numEpoch += 1;
+        # Calculamos las metricas en este ciclo
+        trainingLoss = loss(ann, inputs', targets');
+        #  almacenamos el valor de loss
+        push!(trainingLosses, trainingLoss);
+        #  lo mostramos por pantalla
+        println("Epoch ", numEpoch, ": loss: ", trainingLoss);
 
-        if epochLoss <= minLoss #si la perdida es menor o igual a minLoss paramos el entrenamiento
-            break
-        end
-    end
+    end;
 
-    return (ann, lossHistory) #Devolvemos la red entrenada y el historial de pérdida
-end
-
-function trainClassANN(topology::AbstractArray{<:Int,1}, (inputs, targets)::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)), maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01)
-    targets = reshape(targets, :, 1) #convertimos a una matriz de 1 columna
-    return trainClassANN(topology, (inputs, targets); transferFunctions=transferFunctions, maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
-end
-function holdOut(N::Int, P::Real)
-    indices = randperm(N)
-    n_test = Int(round(int, P * N))
-    indices_test = indices[1:n_test]
-    indices_entrenamiento = indices[n_test + 1:end]
-    return indices_entrenamiento, indices_test
+    # Devolvemos la RNA entrenada y el vector con los valores de loss
+    return (ann, trainingLosses);
 end;
+
+
+trainClassANN(topology::AbstractArray{<:Int,1}, (inputs, targets)::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}; transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)), maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01) = trainClassANN(topology, (inputs, reshape(targets, length(targets), 1)); maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate)
+
+
+# ----------------------------------------------------------------------------------------------
+# ------------------------------------- Ejercicio 3 --------------------------------------------
+# ----------------------------------------------------------------------------------------------
+
+using Random
+
+function holdOut(N::Int, P::Real)
+    @assert ((P>=0.) & (P<=1.));
+    indices = randperm(N);
+    numTrainingInstances = Int(round(N*(1-P)));
+    return (indices[1:numTrainingInstances], indices[numTrainingInstances+1:end]);
+end
 
 function holdOut(N::Int, Pval::Real, Ptest::Real)
-    indices = randperm(N)
-    n_test = Int(round(int, Ptest * N))
-    indices_test = indices[1:n_test]
-    train_val_indices = setdiff(indices, indices_test)
-    n_validacion = Int(round(int, Pval * length(train_val_indices)))
-    indices_validacion = train_val_indices[1: n_validacion]
-    indices_entrenamiento = train_val_indices[n_validacion + 1: end]
-    return indices_validacion, indices_entrenamiento, indices_test
+    @assert ((Pval>=0.) & (Pval<=1.));
+    @assert ((Ptest>=0.) & (Ptest<=1.));
+    @assert ((Pval+Ptest)<=1.);
+    # Primero separamos en entrenamiento+validation y test
+    (trainingValidationIndices, testIndices) = holdOut(N, Ptest);
+    # Después separamos el conjunto de entrenamiento+validation
+    (trainingIndices, validationIndices) = holdOut(length(trainingValidationIndices), Pval*N/length(trainingValidationIndices))
+    return (trainingValidationIndices[trainingIndices], trainingValidationIndices[validationIndices], testIndices);
 end;
+
+
+
+# Funcion para entrenar RR.NN.AA. con conjuntos de entrenamiento, validacion y test. Estos dos ultimos son opcionales
+# Es la funcion anterior, modificada para calcular errores en los conjuntos de validacion y test y realizar parada temprana si es necesario
 function trainClassANN(topology::AbstractArray{<:Int,1},
     trainingDataset::  Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}};
     validationDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0,size(trainingDataset[2],2))),
     testDataset::      Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}=(Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0,size(trainingDataset[2],2))),
     transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
     maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20)
- 
+
     (trainingInputs,   trainingTargets)   = trainingDataset;
     (validationInputs, validationTargets) = validationDataset;
     (testInputs,       testTargets)       = testDataset;
- 
+
     # Se supone que tenemos cada patron en cada fila
     # Comprobamos que el numero de filas (numero de patrones) coincide tanto en entrenamiento como en validacion como test
     @assert(size(trainingInputs,   1)==size(trainingTargets,   1));
@@ -305,61 +257,61 @@ function trainClassANN(topology::AbstractArray{<:Int,1},
     # Comprobamos que el numero de columnas coincide en los grupos de entrenamiento y test, si este no está vacío
     !isempty(testInputs)  && @assert(size(trainingInputs, 2)==size(testInputs, 2));
     !isempty(testTargets) && @assert(size(trainingTargets,2)==size(testTargets,2));
- 
+
     # Pasamos los datos a Float32
     trainingInputs   = Float32.(  trainingInputs);
     validationInputs = Float32.(validationInputs);
     testInputs       = Float32.(      testInputs);
- 
+
     # Creamos la RNA
     ann = buildClassANN(size(trainingInputs,2), topology, size(trainingTargets,2); transferFunctions=transferFunctions);
- 
+
     # Definimos la funcion de loss
     loss(model,x,y) = (size(y,1) == 1) ? Losses.binarycrossentropy(model(x),y) : Losses.crossentropy(model(x),y);
- 
+
     # Creamos los vectores con los valores de loss y de precision en cada ciclo
     trainingLosses   = Float32[];
     validationLosses = Float32[];
     testLosses       = Float32[];
- 
+
     # Empezamos en el ciclo 0
     numEpoch = 0;
- 
+
     # Una funcion util para calcular los resultados y mostrarlos por pantalla si procede
     function calculateLossValues()
         # Calculamos el loss en entrenamiento, validacion y test. Para ello hay que pasar las matrices traspuestas (cada patron en una columna)
         trainingLoss = loss(ann, trainingInputs', trainingTargets');
-        validationLoss = NaN; testLoss = NaN;
+    	validationLoss = NaN; testLoss = NaN;
         push!(trainingLosses, trainingLoss);
         !isempty(validationInputs) && (validationLoss = loss(ann, validationInputs', validationTargets'); push!(validationLosses, validationLoss);)
-        !isempty(      testInputs) && (testLoss       = loss(ann,       testInputs',       testTargets'); push!(      testLosses,       testLoss);)
+    	!isempty(      testInputs) && (testLoss       = loss(ann,       testInputs',       testTargets'); push!(      testLosses,       testLoss);)
         return (trainingLoss, validationLoss, testLoss);
     end;
- 
+
     # Calculamos los valores de loss para el ciclo 0 (sin entrenar nada)
     (trainingLoss, validationLoss, _) = calculateLossValues();
- 
+
     if isempty(validationInputs) maxEpochsVal=Inf; end;
- 
+
     # Numero de ciclos sin mejorar el error de validacion y el mejor error de validation encontrado hasta el momento
     numEpochsValidation = 0; bestValidationLoss = validationLoss;
     # Cual es la mejor ann que se ha conseguido
     bestANN = deepcopy(ann);
- 
+
     opt_state = Flux.setup(Adam(learningRate), ann)
- 
+
     # Entrenamos hasta que se cumpla una condicion de parada
     while (numEpoch<maxEpochs) && (trainingLoss>minLoss) && (numEpochsValidation<maxEpochsVal)
- 
+
         # Entrenamos 1 ciclo. Para ello hay que pasar las matrices traspuestas (cada patron en una columna)
         Flux.train!(loss, ann, [(trainingInputs', trainingTargets')], opt_state);
- 
+
         # Aumentamos el numero de ciclo en 1
         numEpoch += 1;
- 
+
         # Calculamos los valores de loss para este ciclo
         (trainingLoss, validationLoss, _) = calculateLossValues();
- 
+
         # Aplicamos la parada temprana si hay conjunto de validacion
         if !isempty(validationInputs)
             if validationLoss<bestValidationLoss
@@ -370,16 +322,17 @@ function trainClassANN(topology::AbstractArray{<:Int,1},
                 numEpochsValidation += 1;
             end;
         end;
- 
+
     end;
- 
+
     # Si no hubo conjunto de validacion, la mejor RNA será siempre la del último ciclo
     if isempty(validationInputs)
         bestANN = ann;
     end;
- 
+
     return (bestANN, trainingLosses, validationLosses, testLosses);
 end;
+
 
 
 function trainClassANN(topology::AbstractArray{<:Int,1},
@@ -388,15 +341,22 @@ function trainClassANN(topology::AbstractArray{<:Int,1},
     testDataset::      Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}=(Array{eltype(trainingDataset[1]),2}(undef,0,size(trainingDataset[1],2)), falses(0)),
     transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
     maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, maxEpochsVal::Int=20)
- 
+
     (trainingInputs,   trainingTargets)   = trainingDataset;
     (validationInputs, validationTargets) = validationDataset;
     (testInputs,       testTargets)       = testDataset;
- 
+
     return trainClassANN(topology, (trainingInputs, reshape(trainingTargets, length(trainingTargets), 1)); validationDataset=(validationInputs, reshape(validationTargets, length(validationTargets), 1)), testDataset=(testInputs, reshape(testTargets, length(testTargets), 1)), transferFunctions=transferFunctions, maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate, maxEpochsVal=maxEpochsVal);
 end;
 
-#///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+# ----------------------------------------------------------------------------------------------
+# ------------------------------------- Ejercicio 4 --------------------------------------------
+# ----------------------------------------------------------------------------------------------
+
+
 
 function confusionMatrix(outputs::AbstractArray{Bool,1}, targets::AbstractArray{Bool,1})
     numInstances = length(targets);
@@ -430,11 +390,11 @@ function confusionMatrix(outputs::AbstractArray{Bool,1}, targets::AbstractArray{
     @assert(!isnan(F1));
     return (acc, errorRate, recall, specificity, precision, NPV, F1, confMatrix)
 end;
- 
- 
+
+
 confusionMatrix(outputs::AbstractArray{<:Real,1}, targets::AbstractArray{Bool,1}; threshold::Real=0.5) = confusionMatrix(outputs.>=threshold, targets);
- 
- 
+
+
 function confusionMatrix(outputs::AbstractArray{Bool,2}, targets::AbstractArray{Bool,2}; weighted::Bool=true)
     @assert(size(outputs)==size(targets));
     (numInstances, numClasses) = size(targets);
@@ -443,7 +403,7 @@ function confusionMatrix(outputs::AbstractArray{Bool,2}, targets::AbstractArray{
     if (numClasses==1)
         return confusionMatrix(outputs[:,1], targets[:,1]);
     end;
- 
+
     # Nos aseguramos de que en cada fila haya uno y sólo un valor a true
     @assert(all(sum(outputs, dims=2).==1));
     # Reservamos memoria para las metricas de cada clase, inicializandolas a 0 porque algunas posiblemente no se calculen
@@ -459,10 +419,10 @@ function confusionMatrix(outputs::AbstractArray{Bool,2}, targets::AbstractArray{
     end;
     # Es posible hacer esta operación sin bucle, de esta manera:
     # [(_, _, recall[numClass], specificity[numClass], precision[numClass], NPV[numClass], F1[numClass], _) = confusionMatrix(outputs[:,numClass], targets[:,numClass]); for numClass in 1:numClasses]
- 
+
     # Creamos la matriz de confusión
     confMatrix = [sum(targets[:,numClassTarget] .& outputs[:,numClassOutput]) for numClassTarget in 1:numClasses, numClassOutput in 1:numClasses];
- 
+
     # Aplicamos las formas de combinar las metricas macro o weighted
     if weighted
         # Calculamos los valores de ponderacion para hacer el promedio
@@ -484,29 +444,29 @@ function confusionMatrix(outputs::AbstractArray{Bool,2}, targets::AbstractArray{
     # Precision y tasa de error las calculamos con las funciones definidas previamente
     acc = accuracy(outputs, targets);
     errorRate = 1 - acc;
- 
+
     return (acc, errorRate, recall, specificity, precision, NPV, F1, confMatrix);
 end;
- 
+
 confusionMatrix(outputs::AbstractArray{<:Real,2}, targets::AbstractArray{Bool,2}; threshold::Real=0.5, weighted::Bool=true) = confusionMatrix(classifyOutputs(outputs; threshold=threshold), targets; weighted=weighted)
- 
- 
- 
- 
+
+
+
+
 function confusionMatrix(outputs::AbstractArray{<:Any,1}, targets::AbstractArray{<:Any,1}, classes::AbstractArray{<:Any,1}; weighted::Bool=true)
     # Comprobamos que todas las clases de salida esten dentro de las clases de las salidas deseadas
     @assert(all([in(label, classes) for label in vcat(targets, outputs)]));
     # Es importante pasar el mismo vector de clases como argumento a las 2 llamadas a oneHotEncoding para que el orden de las clases sea el mismo en ambas matrices
     return confusionMatrix(oneHotEncoding(outputs, classes), oneHotEncoding(targets, classes); weighted=weighted);
 end;
- 
+
 function confusionMatrix(outputs::AbstractArray{<:Any,1}, targets::AbstractArray{<:Any,1}; weighted::Bool=true)
     classes = unique(vcat(targets, outputs));
     return confusionMatrix(outputs, targets, classes; weighted=weighted);
 end;
- 
- 
- 
+
+
+
 # Funciones auxiliares para visualizar por pantalla la matriz de confusion y las metricas que se derivan de ella
 function printConfusionMatrix(outputs::AbstractArray{Bool,2}, targets::AbstractArray{Bool,2}; weighted::Bool=true)
     (acc, errorRate, recall, specificity, precision, NPV, F1, confMatrix) = confusionMatrix(outputs, targets; weighted=weighted);
@@ -542,14 +502,14 @@ function printConfusionMatrix(outputs::AbstractArray{Bool,2}, targets::AbstractA
     return (acc, errorRate, recall, specificity, precision, NPV, F1, confMatrix);
 end;
 printConfusionMatrix(outputs::AbstractArray{<:Real,2}, targets::AbstractArray{Bool,2}; weighted::Bool=true) =  printConfusionMatrix(classifyOutputs(outputs), targets; weighted=weighted)
- 
- 
- 
+
+
+
 printConfusionMatrix(outputs::AbstractArray{Bool,1},   targets::AbstractArray{Bool,1})                      = printConfusionMatrix(reshape(outputs, :, 1), reshape(targets, :, 1));
 printConfusionMatrix(outputs::AbstractArray{<:Real,1}, targets::AbstractArray{Bool,1}; threshold::Real=0.5) = printConfusionMatrix(outputs.>=threshold,    targets);
- 
+
 printConfusionMatrix(outputs::AbstractArray{<:Any,1}, targets::AbstractArray{<:Any,1}, classes::AbstractArray{<:Any,1}; weighted::Bool=true) = printConfusionMatrix(oneHotEncoding(outputs, classes), oneHotEncoding(targets, classes); weighted=weighted);
- 
+
 function printConfusionMatrix(outputs::AbstractArray{<:Any,1}, targets::AbstractArray{<:Any,1}; weighted::Bool=true)
     classes = unique(vcat(targets, outputs));
     printConfusionMatrix(oneHotEncoding(outputs, classes), oneHotEncoding(targets, classes); weighted=weighted);
@@ -557,322 +517,354 @@ end;
 
 
 
-function trainClassDoME(trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}},
-testInputs::AbstractArray{<:Real,2}, maximumNodes::Int)
-    trainInputs = Float64.(trainingDataset[1])
-    trainTargets = trainingDataset[2]
-    testInputs = Float64.(testInputs)
-    _, _, _, model = dome(trainInputs, trainTargets;
-    maximumNodes = maximumNodes)
-    model_str = string(model)
-    testOutputs = evaluateTree(model, testInputs)
-    
+
+
+using SymDoME
+
+
+function trainClassDoME(trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,1}}, testInputs::AbstractArray{<:Real,2}, maximumNodes::Int)
+
+    (trainingInputs, trainingTargets) = trainingDataset;
+
+    trainingInputs = Float64.(trainingInputs);
+    testInputs = Float64.(testInputs);
+
+    _, _, _, model = dome(trainingInputs, trainingTargets;
+        maximumNodes = maximumNodes
+    )
+
+    # El resultado de evaluateTree puede ser un valor real, o un vector
+    testOutputs = evaluateTree(model, testInputs);
     if isa(testOutputs, Real)
-        testOutputs = repeat([testOutputs], size(testInputs,1))
-    end
+        testOutputs = repeat([testOutputs], size(testInputs,1));
+    end;
+    return testOutputs;
+end;
 
+
+function trainClassDoME(trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}}, testInputs::AbstractArray{<:Real,2}, maximumNodes::Int)
+
+    (trainingInputs, trainingTargets) = trainingDataset;
+    numColumns = size(trainingTargets,2);
+
+    if numColumns==1
+
+        testOutputs = trainClassDoME((trainingInputs, vec(trainingTargets)), testInputs, maximumNodes);
+        return reshape(testOutputs, :, 1)
+
+    end;
+
+    # Nos aseguramos de que hay mas de dos clases
+    @assert(numColumns>2);
+
+    testOutputs = Array{Float64,2}(undef, size(testInputs,1), numColumns);
+    for numClass in Base.OneTo(numColumns)
+
+        testOutputs[:,numClass] .= trainClassDoME((trainingInputs, trainingTargets[:,numClass]), testInputs, maximumNodes)
+
+    end;
     return testOutputs
-end
+end;
 
-        
-function trainClassDoME(trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{Bool,2}},
-testInputs::AbstractArray{<:Real,2}, maximumNodes::Int)
 
-    if size(trainingDataset[2], 2) == 1
-        trainingDataset = (trainingDataset[1], reshape(trainingDataset[2], :, 1))
-        return trainClassDoME(trainingDataset, testInputs, maximumNodes)
-    end
+function trainClassDoME(trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}}, testInputs::AbstractArray{<:Real,2}, maximumNodes::Int)
 
-    num_classes = size(trainingDataset[2], 2)
-    num_rows = size(testInputs, 1)
-    matrix = Matrix{Float64}(undef, num_rows, num_classes)
-    for i in 1:num_classes
-        new_targets = trainingDataset[2][:, i]
-        matrix[:, i] = trainClassDoME((trainingDataset[1], new_targets), testInputs, maximumNodes)
-    end
+    (trainingInputs, trainingTargets) = trainingDataset;
+    classes = unique(trainingTargets);
 
-    return matrix
-end
+    testOutputsDoME = trainClassDoME((trainingInputs, oneHotEncoding(trainingTargets, classes)), testInputs, maximumNodes);
+    testOutputsBool = classifyOutputs(testOutputsDoME; threshold=0);
 
-        
-function trainClassDoME(trainingDataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}},
-testInputs::AbstractArray{<:Real,2}, maximumNodes::Int)
-    classes = unique(trainingDataset[2])
-    num_classes = length(classes)
-    testOutputs = Array{eltype(trainingDataset[2]),1}(undef, size(testInputs,1))
-    testOutputsDoME = trainClassDoME( (trainingDataset[1], oneHotEncoding(trainingDataset[2], classes)), 
-    testInputs, maximumNodes)
-    testOutputsBool = classifyOutputs(testOutputsDoME; threshold=0)
+    testOutputs = Array{eltype(trainingTargets),1}(undef, size(testInputs,1));
 
-    if num_classes == 2
-        testOutputsBool = vec(testOutputsBool)  # Asegura que sea un vector
-        testOutputs[testOutputsBool] .= classes[1]
-        testOutputs[.!testOutputsBool] .= classes[2]
+    if length(classes)<=2
+        @assert(isa(testOutputsBool, Vector) || size(testOutputsBool,2)==1)
+        testOutputsBool = vec(testOutputsBool);
+        testOutputs[  testOutputsBool] .= classes[1];
+        if length(classes)==2
+            testOutputs[.!testOutputsBool] .= classes[2];
+        else @assert(all(testOutputsBool))
+        end;
     else
-        for numClass in 1:num_classes
-            testOutputs[testOutputsBool[:, numClass]] .= classes[numClass]
-        end
-    end
+        @assert(all(sum(testOutputsBool, dims=2).==1));
+        for numClass in eachindex(classes)
+            testOutputs[testOutputsBool[:,numClass]] .= classes[numClass];
+        end;
+    end;
+    return testOutputs;
+end;
 
-    return testOutputs
-end
 
-#///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+# ----------------------------------------------------------------------------------------------
+# ------------------------------------- Ejercicio 5 --------------------------------------------
+# ----------------------------------------------------------------------------------------------
+
+using Random
+using Random:seed!
 
 function crossvalidation(N::Int64, k::Int64)
-    @assert(k >= 10)
-    vector = collect(1:k)
-    num_reps = ceil(Int, N/k)
-    v_repeated = repeat(vector, num_reps)
-    v_repeated = v_repeated[1:N]
-    shuffle!(v_repeated)
-    return v_repeated
-end
+    indices = repeat(1:k, Int64(ceil(N/k)));
+    indices = indices[1:N];
+    shuffle!(indices);
+    return indices;
+end;
 
 function crossvalidation(targets::AbstractArray{Bool,1}, k::Int64)
-    @assert(k >= 10)
-    index_vector = collect(1:size(targets))
-    num_positive_instances = sum(targets)
-    index_vector[targets] .= crossvalidation(num_positive_instances, k)
-    index_vector[.!targets] .= crossvalidation(size(targets) - num_positive_instances, k)
-    return index_vector
-end
+    indices = Array{Int64,1}(undef, length(targets));
+    indices[  targets] = crossvalidation(sum(  targets), k);
+    indices[.!targets] = crossvalidation(sum(.!targets), k);
+    return indices;
+end;
 
 function crossvalidation(targets::AbstractArray{Bool,2}, k::Int64)
-    @assert(k >= 10)
-    index_vector = collect(1:size(targets, 1))
-    num_classes = size(targets, 2)
-
-    for i in 1:num_classes
-        index_vector[targets[:, i]] .= crossvalidation(sum(targets[:, i]), k)
-    end
-
-    return index_vector
-
-end
-
-function crossvalidation(targets::AbstractArray{<:Any,1}, k::Int64)
-    one_hot_targets = oneHotEncoding(targets)
-    return crossvalidation(one_hot_targets, k)
-end
+    numClasses = size(targets,2);
+    @assert(numClasses!=2);
+    if numClasses==1
+        return crossvalidation(vec(targets), k);
+    end;
+    indices = Array{Int64,1}(undef, size(targets,1));
+    for numClass in 1:numClasses
+        indices[targets[:,numClass]] = crossvalidation(sum(targets[:,numClass]), k);
+    end;
+    return indices;
+end;
 
 
-function ANNCrossValidation(
-    topology::AbstractArray{<:Int,1},
+crossvalidation(targets::AbstractArray{<:Any,1}, k::Int64) = crossvalidation(oneHotEncoding(targets), k)
+
+
+
+
+
+function ANNCrossValidation(topology::AbstractArray{<:Int,1},
     dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}},
     crossValidationIndices::Array{Int64,1};
     numExecutions::Int=50,
     transferFunctions::AbstractArray{<:Function,1}=fill(σ, length(topology)),
-    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01,
-    validationRatio::Real=0, maxEpochsVal::Int=20
-)   
-    # Obtener las clases y codificación one-hot para las etiquetas
-    inputs  = dataset[1]
-    targets = dataset[2]  
-    classes = unique(targets)
-    num_classes = length(classes)
-    one_hot_targets = oneHotEncoding(targets, classes)
-    
-    num_folds = maximum(crossValidationIndices)  
+    maxEpochs::Int=1000, minLoss::Real=0.0, learningRate::Real=0.01, validationRatio::Real=0, maxEpochsVal::Int=20)
 
-    # Inicializar vectores para métricas
-    accuracies = zeros(Float64, num_folds)
-    error_rates = zeros(Float64, num_folds)
-    recalls = zeros(Float64, num_folds)
-    specificities = zeros(Float64, num_folds)
-    precisions = zeros(Float64, num_folds)
-    npvs = zeros(Float64, num_folds)
-    f1_scores = zeros(Float64, num_folds)
-    cm = zeros(Float64, num_classes, num_classes)  
+    (inputs,targets) = dataset;
 
-    # k-fold cross-validation
-    for fold in 1:num_folds
+    # Comprobamos que el numero de patrones coincide
+    @assert(size(inputs,1)==length(targets));
 
-        test_indices = findall(crossValidationIndices .== fold)
-        train_indices = findall(crossValidationIndices .!= fold)
+    # Que clases de salida tenemos
+    classes = unique(targets);
 
-        trainingInputs = inputs[train_indices, :]
-        trainingTargets = one_hot_targets[train_indices, :]
-        testInputs = inputs[test_indices, :]
-        testTargets = one_hot_targets[test_indices, :]
+    # Primero codificamos las salidas deseadas en caso de entrenar RR.NN.AA.
+    targets = oneHotEncoding(targets, classes);
 
-         if validationRatio > 0
-            ratio_real = validationRatio / (1 - length(test_indices) / length(crossValidationIndices))
-            
-            train_indices, val_indices = holdOut(size(trainingInputs, 1), ratio_real)
-        
-            validationInputs, validationTargets = trainingInputs[val_indices, :], trainingTargets[val_indices, :]
-            trainingInputs, trainingTargets = trainingInputs[train_indices, :], trainingTargets[train_indices, :]
-        else
-            validationInputs = Array{Float64, 2}(undef, 0, size(trainingInputs, 2))
-            validationTargets = Array{Bool, 2}(undef, 0, size(trainingTargets, 2)) 
-        end
-        
-        accuracies_exe = zeros(Float64, numExecutions)
-        error_rates_exe = zeros(Float64, numExecutions)
-        recalls_exe = zeros(Float64, numExecutions)
-        specificities_exe = zeros(Float64, numExecutions)
-        precisions_exe = zeros(Float64, numExecutions)
-        npvs_exe = zeros(Float64, numExecutions)
-        f1_scores_exe = zeros(Float64, numExecutions)
-        cm_exe = zeros(Float64, num_classes, num_classes, numExecutions)
-        
-        # Ejecutar el entrenamiento numExecutions veces
-        for exe in 1:numExecutions
-            # Entrenar el modelo incluyendo validación y test
-            model, _, _, _= trainClassANN(
-                topology, 
-                (trainingInputs, trainingTargets);
-                validationDataset = (validationInputs, validationTargets),
-                testDataset = (testInputs, testTargets),
-                transferFunctions = transferFunctions,
-                maxEpochs = maxEpochs,
-                minLoss = minLoss,
-                learningRate = learningRate,
-                maxEpochsVal = maxEpochsVal
-            )
+    # Creamos los vectores para las metricas que se vayan a usar
+    numFolds = maximum(crossValidationIndices);
+    testAccuracy    = Array{Float64,1}(undef, numFolds);
+    testErrorRate   = Array{Float64,1}(undef, numFolds);
+    testRecall      = Array{Float64,1}(undef, numFolds);
+    testSpecificity = Array{Float64,1}(undef, numFolds);
+    testPrecision   = Array{Float64,1}(undef, numFolds);
+    testNPV         = Array{Float64,1}(undef, numFolds);
+    testF1          = Array{Float64,1}(undef, numFolds);
+    testConfusionMatrix = zeros(length(classes), length(classes));
 
-            # Evaluar en test
-            predictions = model(testInputs')'
-            acc, err, recall, specificity, precision, npv, f1_score, cm_iter = confusionMatrix(predictions, testTargets)
+    # Para cada fold, entrenamos
+    for numFold in 1:numFolds
 
-            # Almacenar métricas
-            accuracies_exe[exe] = Float64(acc)
-            error_rates_exe[exe] = Float64(err)
-            recalls_exe[exe] = Float64(recall)
-            specificities_exe[exe] = Float64(specificity)
-            precisions_exe[exe] = Float64(precision)
-            npvs_exe[exe] = Float64(npv)
-            f1_scores_exe[exe] = Float64(f1_score)
-            cm_exe[:,:,exe] = Float64.(cm_iter)
+        # Dividimos los datos en entrenamiento y test
+        trainingInputs    = inputs[crossValidationIndices.!=numFold,:];
+        testInputs        = inputs[crossValidationIndices.==numFold,:];
+        trainingTargets   = targets[crossValidationIndices.!=numFold,:];
+        testTargets       = targets[crossValidationIndices.==numFold,:];
 
-        end
+        # Como el entrenamiento de RR.NN.AA. es no determinístico, hay que entrenar varias veces, y
+        #  se crean vectores adicionales para almacenar las metricas para cada entrenamiento
+        testAccuracyEachRepetition        = Array{Float64,1}(undef, numExecutions);
+        testErrorRateEachRepetition       = Array{Float64,1}(undef, numExecutions);
+        testRecallEachRepetition          = Array{Float64,1}(undef, numExecutions);
+        testSpecificityEachRepetition     = Array{Float64,1}(undef, numExecutions);
+        testPrecisionEachRepetition       = Array{Float64,1}(undef, numExecutions);
+        testNPVEachRepetition             = Array{Float64,1}(undef, numExecutions);
+        testF1EachRepetition              = Array{Float64,1}(undef, numExecutions);
+        testConfusionMatrixEachRepetition = Array{Float64,3}(undef, length(classes), length(classes), numExecutions);
+
+        # Se entrena las veces que se haya indicado
+        for numTraining in 1:numExecutions
+
+            if validationRatio>0
+
+                # Para el caso de entrenar una RNA con conjunto de validacion, hacemos una división adicional:
+                #  dividimos el conjunto de entrenamiento en entrenamiento+validacion
+                #  Para ello, hacemos un hold out
+                (trainingIndices, validationIndices) = holdOut(size(trainingInputs,1), validationRatio*size(inputs,1)/size(trainingInputs,1));
+                # Con estos indices, se pueden crear los vectores finales que vamos a usar para entrenar una RNA
+                # Otra forma de hacer el mismo cálculo:
+                # (trainingIndices, validationIndices) = holdOut(size(trainingInputs,1), validationRatio*numFolds/(numFolds-1));
+
+                # Entrenamos la RNA, teniendo cuidado de codificar las salidas deseadas correctamente
+                ann, = trainClassANN(topology, (trainingInputs[trainingIndices,:],   trainingTargets[trainingIndices,:]),
+                    validationDataset = (trainingInputs[validationIndices,:], trainingTargets[validationIndices,:]),
+                    testDataset =       (testInputs,                          testTargets);
+                    transferFunctions = transferFunctions,
+                    maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate, maxEpochsVal=maxEpochsVal);
+                    
+            else
+
+                # Si no se desea usar conjunto de validacion, se entrena unicamente con conjuntos de entrenamiento y test,
+                #  teniendo cuidado de codificar las salidas deseadas correctamente
+                ann, = trainClassANN(topology, (trainingInputs, trainingTargets),
+                    testDataset = (testInputs,     testTargets);
+                    transferFunctions=transferFunctions,
+                    maxEpochs=maxEpochs, minLoss=minLoss, learningRate=learningRate);
+
+            end;
+
+            # Calculamos las metricas correspondientes con la funcion desarrollada en el ejercicio anterior
+            (testAccuracyEachRepetition[numTraining], testErrorRateEachRepetition[numTraining], testRecallEachRepetition[numTraining], testSpecificityEachRepetition[numTraining], testPrecisionEachRepetition[numTraining], testNPVEachRepetition[numTraining], testF1EachRepetition[numTraining], testConfusionMatrixEachRepetition[:,:,numTraining]) =
+                confusionMatrix(collect(ann(Float32.(testInputs'))'), testTargets);
+
+            @assert( isapprox( testAccuracyEachRepetition[numTraining], sum([testConfusionMatrixEachRepetition[numClass,numClass,numTraining] for numClass in 1:length(classes)])/sum(testConfusionMatrixEachRepetition[:,:,numTraining]) ) );
+
+        end;
+
+        # Almacenamos las metricas como una media de las obtenidas en los entrenamientos de este fold
+        testAccuracy[numFold]    = mean(testAccuracyEachRepetition);
+        testErrorRate[numFold]   = mean(testErrorRateEachRepetition);
+        testRecall[numFold]      = mean(testRecallEachRepetition);
+        testSpecificity[numFold] = mean(testSpecificityEachRepetition);
+        testPrecision[numFold]   = mean(testPrecisionEachRepetition);
+        testNPV[numFold]         = mean(testNPVEachRepetition);
+        testF1[numFold]          = mean(testF1EachRepetition);
+        testConfusionMatrix    .+= mean(testConfusionMatrixEachRepetition, dims=3)[:,:,1];
+
+    end; # for numFold in 1:numFolds
+
+    return (mean(testAccuracy), std(testAccuracy)), (mean(testErrorRate), std(testErrorRate)), (mean(testRecall), std(testRecall)), (mean(testSpecificity), std(testSpecificity)), (mean(testPrecision), std(testPrecision)), (mean(testNPV), std(testNPV)), (mean(testF1), std(testF1)), testConfusionMatrix;
+
+end;
 
 
-        accuracies[fold] = mean(accuracies_exe)
-        error_rates[fold] = mean(error_rates_exe)
-        recalls[fold] = mean(recalls_exe)
-        specificities[fold] = mean(specificities_exe)
-        npvs[fold] = mean(npvs_exe)
-        precisions[fold] = mean(precisions_exe)
-        f1_scores[fold] = mean(f1_scores_exe)
-        cm_mean = mean(cm_exe, dims=3)[:,:,1]
-        cm .+= cm_mean
-    end
 
-    
-    println("Mean and standard deviation of metrics:")
-    println("Accuracy: ", mean(accuracies), " ± ", std(accuracies))
-    println("Error rate: ", mean(error_rates), " ± ", std(error_rates))
-    println("Recall: ", mean(recalls), " ± ", std(recalls))
-    println("Specificity: ", mean(specificities), " ± ", std(specificities))
-    println("Precision: ", mean(precisions), " ± ", std(precisions))
-    println("NPV: ", mean(npvs), " ± ", std(npvs))
-    println("F1-score: ", mean(f1_scores), " ± ", std(f1_scores))
 
-    return ((mean(accuracies), std(accuracies)),
-            (mean(error_rates), std(error_rates)),
-            (mean(recalls), std(recalls)),
-            (mean(specificities), std(specificities)),
-            (mean(precisions), std(precisions)),
-            (mean(npvs), std(npvs)),
-            (mean(f1_scores), std(f1_scores)),
-            cm)
-    
-end
+
+# ----------------------------------------------------------------------------------------------
+# ------------------------------------- Ejercicio 6 --------------------------------------------
+# ----------------------------------------------------------------------------------------------
+
 
 using MLJ
 using LIBSVM, MLJLIBSVMInterface
 using NearestNeighborModels, MLJDecisionTreeInterface
 
-SVMClassifier = MLJ.@load SVC pkg=LIBSVM verbosity=0 
-kNNClassifier = MLJ.@load KNNClassifier pkg=NearestNeighborModels verbosity=0 
+SVMClassifier = MLJ.@load SVC pkg=LIBSVM verbosity=0
+kNNClassifier = MLJ.@load KNNClassifier pkg=NearestNeighborModels verbosity=0
 DTClassifier  = MLJ.@load DecisionTreeClassifier pkg=DecisionTree verbosity=0
 
+function modelCrossValidation(modelType::Symbol, modelHyperparameters::Dict, dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}}, crossValidationIndices::Array{Int64,1})
 
-function modelCrossValidation(modelType::Symbol, modelHyperparameters::Dict,
-    dataset::Tuple{AbstractArray{<:Real,2}, AbstractArray{<:Any,1}},
-    crossValidationIndices::Array{Int64,1})
+    (inputs, targets) = dataset;
 
-    X, y = dataset
-    y = string.(y)
-    classes = unique(y)
-    num_classes = length(classes)
-    numFolds = maximum(crossValidationIndices)
+    # Comprobamos que el numero de patrones coincide
+    @assert(size(inputs,1)==length(targets));
 
-    if modelType == :ANN
-        return ANNCrossValidation(modelHyperparameters, dataset, crossValidationIndices)
+    # Vamos a usar RR.NN.AA.
+    if (modelType==:ANN)
 
+        return ANNCrossValidation(modelHyperparameters["topology"],
+            dataset, crossValidationIndices;
+            numExecutions     = haskey(modelHyperparameters, "numExecutions")     ? modelHyperparameters["numExecutions"]     : 50,
+            transferFunctions = haskey(modelHyperparameters, "transferFunctions") ? modelHyperparameters["transferFunctions"] : fill(σ, length(modelHyperparameters["topology"])),
+            maxEpochs         = haskey(modelHyperparameters, "maxEpochs")         ? modelHyperparameters["maxEpochs"]         : 1000,
+            minLoss           = haskey(modelHyperparameters, "minLoss")           ? modelHyperparameters["minLoss"]           : 0.0,
+            learningRate      = haskey(modelHyperparameters, "learningRate")      ? modelHyperparameters["learningRate"]      : 0.01,
+            validationRatio   = haskey(modelHyperparameters, "validationRatio")   ? modelHyperparameters["validationRatio"]   : 0,
+            maxEpochsVal      = haskey(modelHyperparameters, "maxEpochsVal")      ? modelHyperparameters["maxEpochsVal"]      : 20);
 
-    accuracies = zeros(Float64, num_folds)
-    error_rates = zeros(Float64, num_folds)
-    recalls = zeros(Float64, num_folds)
-    specificities = zeros(Float64, num_folds)
-    precisions = zeros(Float64, num_folds)
-    npvs = zeros(Float64, num_folds)
-    f1_scores = zeros(Float64, num_folds)
-    confusionGlobal = zeros(Int, num_classes, num_classes)
+    end;
 
-    for fold in 1:numFolds
-        trainIdx = findall(x -> x != fold, crossValidationIndices)
-        testIdx  = findall(x -> x == fold, crossValidationIndices)
-        Xtrain, Xtest = X[trainIdx, :], X[testIdx, :]
-        ytrain, ytest = y[trainIdx], y[testIdx]
+    # No estamos trabajando con redes de neuronas
 
-        ypred = []
+    targets = string.(targets);
 
-        if modelType == :SVC
-            kernelMap = Dict("linear" => LIBSVM.Kernel.Linear, "rbf" => LIBSVM.Kernel.RadialBasis,
-                             "sigmoid" => LIBSVM.Kernel.Sigmoid, "poly" => LIBSVM.Kernel.Polynomial)
-            kernel = kernelMap[modelHyperparameters["kernel"]]
-            model = SVMClassifier(
-                kernel = kernel,
-                cost = Float64(modelHyperparameters["C"]),
-                gamma = Float64(get(modelHyperparameters, "gamma", 0.1)),
-                degree = Int32(get(modelHyperparameters, "degree", 3)),
-                coef0 = Float64(get(modelHyperparameters, "coef0", 0.0))
-            )
-            mach = machine(model, MLJ.table(Xtrain), categorical(ytrain))
-            fit!(mach, verbosity=0)
-            ypred = predict(mach, MLJ.table(Xtest))
-            ypred = string.(ypred)
+    # Que clases de salida tenemos
+    classes = unique(targets);
 
-        elseif modelType == :DecisionTreeClassifier
-            model = DTClassifier(max_depth = modelHyperparameters["max_depth"], rng = MersenneTwister(1))
-            mach = machine(model, MLJ.table(Xtrain), categorical(ytrain))
-            fit!(mach, verbosity=0)
-            ypred = predict(mach, MLJ.table(Xtest))
-            ypred = string.(mode.(ypred))
+    # Creamos los vectores para las metricas que se vayan a usar
+    numFolds = maximum(crossValidationIndices);
+    testAccuracy        = Array{Float64,1}(undef, numFolds);
+    testErrorRate       = Array{Float64,1}(undef, numFolds);
+    testRecall          = Array{Float64,1}(undef, numFolds);
+    testSpecificity     = Array{Float64,1}(undef, numFolds);
+    testPrecision       = Array{Float64,1}(undef, numFolds);
+    testNPV             = Array{Float64,1}(undef, numFolds);
+    testF1              = Array{Float64,1}(undef, numFolds);
+    # testConfusionMatrix = Array{Float64,3}(undef, length(classes), length(classes), numFolds);
+    testConfusionMatrix = zeros(Int, length(classes), length(classes));
 
-        elseif modelType == :KNeighborsClassifier
-            model = kNNClassifier(K = modelHyperparameters["n_neighbors"])
-            mach = machine(model, MLJ.table(Xtrain), categorical(ytrain))
-            fit!(mach, verbosity=0)
-            ypred = predict(mach, MLJ.table(Xtest))
-            ypred = string.(mode.(ypred))
+    # Para cada fold, entrenamos
+    for numFold in 1:numFolds
 
-        elseif modelType == :DoME
-            ypred = trainClassDoMe(Xtrain, ytrain, Xtest, modelHyperparameters["maximumNodes"])
+        # Dividimos los datos en entrenamiento y test
+        trainingInputs    = inputs[crossValidationIndices.!=numFold,:];
+        testInputs        = inputs[crossValidationIndices.==numFold,:];
+        trainingTargets   = targets[crossValidationIndices.!=numFold];
+        testTargets       = targets[crossValidationIndices.==numFold];
+
+        # Creamos el modelo según lo que nos hayan pasado como parámetro
+        if modelType==:DoME
+
+            testOutputs = trainClassDoME((trainingInputs, trainingTargets), testInputs, modelHyperparameters["maximumNodes"]);
 
         else
-            error("Modelo nombre soportado")
-        end
 
-        cm, acc, err, rec, spec, prec, npv, f1 = confusionMatrix(ypred, ytest, classes)
-        confusionGlobal .+= cm
-        push!(accs, acc); push!(errs, err); push!(recalls, rec); push!(specs, spec)
-        push!(precs, prec); push!(npvs, npv); push!(f1s, f1)
-    end
+            if modelType==:SVC
+                @assert((modelHyperparameters["kernel"] == "linear") || (modelHyperparameters["kernel"] == "poly") || (modelHyperparameters["kernel"] == "rbf") || (modelHyperparameters["kernel"] == "sigmoid"));
+                model = SVMClassifier(
+                    kernel = 
+                        modelHyperparameters["kernel"]=="linear"  ? LIBSVM.Kernel.Linear :
+                        modelHyperparameters["kernel"]=="rbf"     ? LIBSVM.Kernel.RadialBasis :
+                        modelHyperparameters["kernel"]=="poly"    ? LIBSVM.Kernel.Polynomial :
+                        modelHyperparameters["kernel"]=="sigmoid" ? LIBSVM.Kernel.Sigmoid : nothing,
+                    cost   = Float64(modelHyperparameters["C"]),
+                    gamma  = Float64(get(modelHyperparameters, "gamma",  -1)),
+                    degree = Int32(  get(modelHyperparameters, "degree", -1)),
+                    coef0  = Float64(get(modelHyperparameters, "coef0",  -1)));
+                # Cuidado con los tipos de los argumentos cost, gamma, degree y coef0, tienen que ser esos. No vale, por ejemplo, que degree sea Int, tiene que ser Int32
 
-    return (
-        (mean(accs), std(accs)),
-        (mean(errs), std(errs)),
-        (mean(recalls), std(recalls)),
-        (mean(specs), std(specs)),
-        (mean(precs), std(precs)),
-        (mean(npvs), std(npvs)),
-        (mean(f1s), std(f1s)),
-        confusionGlobal
-    )
-end
+            elseif modelType==:DecisionTreeClassifier
+                model = DTClassifier(max_depth = modelHyperparameters["max_depth"], rng=Random.MersenneTwister(1));
+            elseif modelType==:KNeighborsClassifier
+                model = kNNClassifier(K = modelHyperparameters["n_neighbors"]);
+            else
+                error(string("Unknown model ", modelType));
+            end;
+
+            # Creamos el objeto de tipo Machine
+            mach = machine(model, MLJ.table(trainingInputs), categorical(trainingTargets));
+
+            # Entrenamos el modelo con el conjunto de entrenamiento
+            MLJ.fit!(mach, verbosity=0)
+
+            # Pasamos el conjunto de test
+            testOutputs = MLJ.predict(mach, MLJ.table(testInputs))
+            # if modelType==:DecisionTreeClassifier || modelType==:KNeighborsClassifier
+            if modelType!=:SVC
+                testOutputs = mode.(testOutputs)
+            end;
+            # testOutputs = string.(testOutputs);
+
+        end;
+
+        # Calculamos las metricas y las almacenamos en las posiciones de este fold de cada vector
+        (testAccuracy[numFold], testErrorRate[numFold], testRecall[numFold], testSpecificity[numFold], testPrecision[numFold], testNPV[numFold], testF1[numFold], testConfusionMatrixThisFold) =
+            confusionMatrix(testOutputs, testTargets, classes);
+
+        @assert( isapprox( testAccuracy[numFold], sum([testConfusionMatrixThisFold[numClass,numClass] for numClass in 1:length(classes)])/sum(testConfusionMatrixThisFold) ) );
+
+        testConfusionMatrix .+= testConfusionMatrixThisFold;
+
+    end; # for numFold in 1:numFolds
+
+    return (mean(testAccuracy), std(testAccuracy)), (mean(testErrorRate), std(testErrorRate)), (mean(testRecall), std(testRecall)), (mean(testSpecificity), std(testSpecificity)), (mean(testPrecision), std(testPrecision)), (mean(testNPV), std(testNPV)), (mean(testF1), std(testF1)), testConfusionMatrix;
+
+end;
+
+

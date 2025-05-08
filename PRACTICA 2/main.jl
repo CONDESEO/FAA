@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import Pkg
 Pkg.activate(".")
 
@@ -30,3 +31,6 @@ include("entrenar_modelos.jl")  # Usa los datos y folds ya generados
 # 4. Visualización de resultados
 # -------------------------
 include("visualizar_resultados.jl")  # Lee resultados.csv y genera gráficos
+=======
+   
+>>>>>>> Stashed changes

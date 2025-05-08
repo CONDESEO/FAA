@@ -3,6 +3,7 @@ using MLJ
 using MLJModels
 using DataFrames
 using Statistics
+import Pkg
 
 # 1. Leer el CSV
 df = CSV.read("atp_tennis.csv", DataFrame)

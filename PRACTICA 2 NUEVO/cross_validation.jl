@@ -2,123 +2,115 @@ using CSV, DataFrames, Statistics, Random
 using MLJ, LIBSVM, MLJLIBSVMInterface
 using NearestNeighborModels, MLJDecisionTreeInterface
 
-include("preprocesado.jl")  # Carga `df::DataFrame` y `jugador_dict`
-include("modelUtils.jl")    # oneHotEncoding, normalizeZeroMean!, trainClassANN, trainClassDoME, crossvalidation, etc.
+include("modelUtils.jl")
+include("preprocesado.jl")
 
-# ----------------------------------------
-# Función para procesar un fold (train o test)
-function procesar_fold(df_fold::DataFrame; one_hot::Bool=false)
-    # Copia para no mutar el original
-    dfc = deepcopy(df_fold)
+println(df.Winner)
+println(typeof(df.Winner))
+# Definir las columnas para One-Hot Encoding
+cols_onehot = [:Series, :Surface, :RoundGroup]
+#Definir las columnas para Normalización
+cols_normalize = [:Odd_Diff, :Pts_Diff_Rel]
 
-    # Separa target (Vector{Bool}) y features
-    y = dfc.Winner .== 1
-    X = select(dfc, Not(:Winner))
+# Número de pliegues para cross-validation
+k = 5
 
-    # 1) One-hot en train y test si pide ANN
-    if one_hot
-        for col in (:Series, :Surface, :RoundGroup)
-            clases = unique(X[!, col])
-            enc = oneHotEncoding(X[!, col], clases)  # n×k matrix
-            # Añade columnas Series_clase, Surface_clase, …
-            for i in 1:size(enc,2)
-                X[!, Symbol(col, "_", clases[i])] = enc[:, i]
-            end
-            select!(X, Not(col))
+# Realizar cross-validation
+folds = crossvalidation(nrow(df), k)  # Obtener los pliegues
+
+for fold in 1:k
+    # Dividir los datos en conjunto de entrenamiento y conjunto de prueba
+    train_indices = findall(x -> x != fold, folds)
+    test_indices = findall(x -> x == fold, folds)
+
+    X_train = df[train_indices, :]  # Conjunto de entrenamiento
+    X_test = df[test_indices, :]  # Conjunto de prueba
+    y_train = X_train.Winner  # Etiquetas de entrenamiento
+    y_test = X_test.Winner  # Etiquetas de prueba
+
+    # Aplicar One-Hot Encoding solo a los datos de entrenamiento
+    for col in cols_onehot
+        classes = unique(X_train[!, col])  # Obtener las categorías únicas del conjunto de entrenamiento
+        X_train_encoded = oneHotEncoding(X_train[!, col], classes)  # Realizar One-Hot Encoding
+
+        # Añadir las nuevas columnas One-Hot codificadas a X_train
+        for (i, class) in enumerate(classes)
+            new_col_name = Symbol(string(col, "_", class))  # Crear el nombre de la nueva columna
+            X_train[!, new_col_name] .= X_train_encoded[:, i]  # Añadir la columna One-Hot codificada
         end
     end
 
-    # 2) Normalización z-score train→test
-    for col in (:Pts_Diff_Rel, :Odd_Diff)
-        v = X[!, col]
-        μ = mean(v)
-        σ = std(v)
-        X[!, col] = σ == 0 ? zeros(length(v)) : (v .- μ) ./ σ
+    #Aplicar One-Hot Encoding a los datos de prueba
+    for col in cols_onehot
+        classes = unique(X_train[!, col])  # Obtener las categorías únicas del conjunto de entrenamiento
+        X_test_encoded = oneHotEncoding(X_test[!, col], classes)  # Realizar One-Hot Encoding
+
+        # Añadir las nuevas columnas One-Hot codificadas a X_test
+        for (i, class) in enumerate(classes)
+            new_col_name = Symbol(string(col, "_", class))  # Crear el nombre de la nueva columna
+            X_test[!, new_col_name] .= X_test_encoded[:, i]  # Añadir la columna One-Hot codificada
+        end
     end
 
-    return Matrix(X), y
-end
-
-# ----------------------------------------
-# Configuración cross-validation
-k = 5
-folds = crossvalidation(df.Winner, k)
-
-# Preparar DataFrame de resultados
-resultados = DataFrame(
-  Modelo       = String[],
-  Parametros   = String[],
-  AccuracyMedia = Float64[],
-  AccuracyStd  = Float64[]
-)
-
-# Modelos a evaluar
-model_configs = [
-  (:ANN,                      Dict("topology"=>[16], "learningRate"=>0.01, "minLoss"=>0.005)),
-  (:SVC,                      Dict("kernel"=>"linear", "C"=>1.0)),
-  (:DecisionTreeClassifier,   Dict("max_depth"=>3)),
-  (:KNeighborsClassifier,     Dict("n_neighbors"=>5)),
-  (:DoME,                     Dict("maximumNodes"=>4))
-]
-
-# ----------------------------------------
-# Bucle sobre modelos y folds
-for (modelo, config) in model_configs
-  accuracies = Float64[]
-  for fold in 1:k
-    # separa índices
-    train_idx = findall(folds .!= fold)
-    test_idx  = findall(folds .== fold)
-    df_train = df[train_idx, :]
-    df_test  = df[test_idx, :]
-
-    # preprocesado
-    one_hot = (modelo == :ANN)
-    X_train, y_train = procesar_fold(df_train; one_hot=one_hot)
-    X_test,  y_test  = procesar_fold(df_test;  one_hot=one_hot)
-
-    # entrenamiento + predicción
-    if modelo == :ANN
-      ann, _ = trainClassANN(
-        config["topology"],
-        (X_train, y_train);
-        learningRate = config["learningRate"],
-        minLoss      = config["minLoss"]
-      )
-      y_pred = vec(classifyOutputs(ann(Float32.(X_test'))'))
-      y_true = y_test
-
-    elseif modelo == :DoME
-      y_pred = trainClassDoME((X_train, y_train), X_test, config["maximumNodes"])
-      y_true = y_test
-
-    else
-      # SVC, DecisionTree o KNN vía MLJ
-      model = modelo == :SVC ? SVC(kernel=LIBSVM.Kernel.Linear, cost=config["C"]) :
-              modelo == :DecisionTreeClassifier ?
-                (@load DecisionTreeClassifier pkg=DecisionTree verbosity=0)(max_depth=config["max_depth"]) :
-              modelo == :KNeighborsClassifier ?
-                (@load KNNClassifier pkg=NearestNeighborModels verbosity=0)(K=config["n_neighbors"]) :
-              error("Modelo desconocido")
-      mach = machine(model, MLJ.table(X_train), categorical(string.(y_train)))
-      fit!(mach, verbosity=0)
-      y_pred = mode.(predict(mach, MLJ.table(X_test)))
-      y_true = string.(y_test)
+    # Aplicar Normalización a los datos de entrenamiento
+    for col in cols_normalize
+      # Extraer la columna a normalizar del conjunto de entrenamiento
+      train_column = X_train[!, col]
+    
+      # Convertir el vector a una matriz (para cumplir con el tipo requerido por la función)
+      train_column_matrix = reshape(train_column, :, 1)
+    
+      # Imprimir estadísticas antes de la normalización
+      println("Antes de la normalización - Entrenamiento: ", col)
+      println("Media: ", mean(train_column_matrix))
+      println("Desviación estándar: ", std(train_column_matrix))
+    
+      # Calcular los parámetros de normalización (mínimo y máximo o media y desviación estándar)
+      normalization_params = calculateZeroMeanNormalizationParameters(train_column_matrix)
+    
+      # Aplicar normalización en el conjunto de entrenamiento
+      normalizeZeroMean!(train_column_matrix, normalization_params)
+    
+      # Imprimir estadísticas después de la normalización
+      println("Después de la normalización - Entrenamiento: ", col)
+      println("Media: ", mean(train_column_matrix))
+      println("Desviación estándar: ", std(train_column_matrix))
+    
+      # Guardar los valores normalizados de nuevo en el dataframe
+      X_train[!, col] .= train_column_matrix[:, 1]  # Convertir de nuevo a vector para el dataframe
     end
 
-    push!(accuracies, mean(y_pred .== y_true))
-  end
+    # Aplicar Normalización a los datos de prueba
+    for col in cols_normalize
+      # Extraer la columna a normalizar del conjunto de entrenamiento
+      test_column = X_test[!, col]
+    
+      # Convertir el vector a una matriz (para cumplir con el tipo requerido por la función)
+      test_column_matrix = reshape(test_column, :, 1)
+    
+      # Imprimir estadísticas antes de la normalización
+      println("Antes de la normalización - Entrenamiento: ", col)
+      println("Media: ", mean(test_column_matrix))
+      println("Desviación estándar: ", std(test_column_matrix))
+    
+      # Calcular los parámetros de normalización (mínimo y máximo o media y desviación estándar)
+      normalization_params = calculateZeroMeanNormalizationParameters(test_column_matrix)
+    
+      # Aplicar normalización en el conjunto de entrenamiento
+      normalizeZeroMean!(test_column_matrix, normalization_params)
+    
+      # Imprimir estadísticas después de la normalización
+      println("Después de la normalización - Prueba: ", col)
+      println("Media: ", mean(test_column_matrix))
+      println("Desviación estándar: ", std(test_column_matrix))
+    
+      # Guardar los valores normalizados de nuevo en el dataframe
+      X_test[!, col] .= test_column_matrix[:, 1]  # Convertir de nuevo a vector para el dataframe
+    end
+    
 
-  # almacena resultados
-  push!(resultados, (
-    string(modelo),
-    repr(config),
-    round(mean(accuracies), digits=4),
-    round(std(accuracies), digits=4)
-  ))
+    
+
+
 end
 
-# ----------------------------------------
-# Guardar y mostrar
-CSV.write("resultados.csv", resultados)
-println("✅ Resultados guardados en resultados.csv")
