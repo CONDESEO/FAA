@@ -5,8 +5,6 @@ using NearestNeighborModels, MLJDecisionTreeInterface
 using Flux
 using Flux.Losses
 
-
-
 include("modelUtils.jl")
 include("preprocesado.jl")
 
@@ -14,7 +12,7 @@ include("preprocesado.jl")
 folds = crossvalidation(df.Winner, 5)
 k = 5
 
-# Diccionarios para guardar los resultados de cada modelo por fold
+# Resultados por modelo
 acc_ann = Float64[]
 acc_svm = Float64[]
 acc_tree = Float64[]
@@ -71,18 +69,14 @@ for fold in 1:k
     # Separar variables
     X_train = Matrix(select(df_train, Not(:Winner)))
     y_train = Vector(df_train.Winner)
-
-    y_train_bin = y_train .== 1
-
-    X_test = Matrix(select(df_test, Not(:Winner)))
-    y_test = Vector(df_test.Winner)
-
-    # Entrenamiento de modelos
+    X_test  = Matrix(select(df_test, Not(:Winner)))
+    y_test  = Vector(df_test.Winner)
 
     # === ANN ===
+    y_train_bin = y_train .== 1
     ann, _ = trainClassANN([10], (X_train, y_train_bin); maxEpochs=50, learningRate=0.01)
     y_pred_ann = ann(Float32.(X_test'))'[:, 1] .> 0.5
-    acc = sum(y_pred_ann .== y_test) / length(y_test)
+    acc = sum(y_pred_ann .== (y_test .== 1)) / length(y_test)
     push!(acc_ann, acc)
     println("Accuracy ANN: ", acc)
 
@@ -106,17 +100,15 @@ for fold in 1:k
     # === kNN ===
     knn_model = machine(KNNClassifier(K=5), MLJ.table(X_train), categorical(string.(y_train)))
     MLJ.fit!(knn_model, verbosity=0)
-    y_pred_knn = MLJ.predict(knn_model, MLJ.table(X_test))
+    y_pred_knn = mode.(MLJ.predict(knn_model, MLJ.table(X_test)))
     acc = sum(y_pred_knn .== string.(y_test)) / length(y_test)
     push!(acc_knn, acc)
     println("Accuracy kNN: ", acc)
 
     # === DoME ===
-    y_train_dome = y_train .== 1
-    y_test_dome = string.(y_test)
-    println(typeof(y_train_dome))
-    y_pred_dome = trainClassDoME((X_train, y_train_dome), X_test, 3)
-    acc = sum(y_pred_dome .== y_test_dome) / length(y_test_dome)
+    y_pred_dome = trainClassDoME((X_train, y_train .== 1), X_test, 3)
+    y_pred_dome_bin = y_pred_dome .> 0.0
+    acc = sum(y_pred_dome_bin .== (y_test .== 1)) / length(y_test)
     push!(acc_dome, acc)
     println("Accuracy DoME: ", acc)
 end
