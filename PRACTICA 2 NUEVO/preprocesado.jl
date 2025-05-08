@@ -80,9 +80,6 @@ df = filter(row -> row.Player_1 != -1 && row.Player_2 != -1, df)
 # 16. Comprobación final
 println("Filas finales: ", nrow(df))
 println("Distribución de clases: ", countmap(df.Winner))
-println(names(df))
-
-CSV.write("atp_tennis_preprocesado.csv", df)
 
 #La columna Date se eliminará ya que al usar validación cruzada mezclaremos partidos de fechas muy dispares
 #La columna Best Of llevará un preprocesado LABEL ENCODING ya que solo presenta dos valores, 0 o 1

@@ -1,124 +1,135 @@
 using CSV, DataFrames, Statistics, Random
+import Statistics: std
 using MLJ, LIBSVM, MLJLIBSVMInterface
 using NearestNeighborModels, MLJDecisionTreeInterface
+using Flux
+using Flux.Losses
 
-include("preprocesado.jl")  # Carga `df::DataFrame` y `jugador_dict`
-include("modelUtils.jl")    # oneHotEncoding, normalizeZeroMean!, trainClassANN, trainClassDoME, crossvalidation, etc.
 
-# ----------------------------------------
-# Función para procesar un fold (train o test)
-function procesar_fold(df_fold::DataFrame; one_hot::Bool=false)
-    # Copia para no mutar el original
-    dfc = deepcopy(df_fold)
 
-    # Separa target (Vector{Bool}) y features
-    y = dfc.Winner .== 1
-    X = select(dfc, Not(:Winner))
+include("modelUtils.jl")
+include("preprocesado.jl")
 
-    # 1) One-hot en train y test si pide ANN
-    if one_hot
-        for col in (:Series, :Surface, :RoundGroup)
-            clases = unique(X[!, col])
-            enc = oneHotEncoding(X[!, col], clases)  # n×k matrix
-            # Añade columnas Series_clase, Surface_clase, …
-            for i in 1:size(enc,2)
-                X[!, Symbol(col, "_", clases[i])] = enc[:, i]
-            end
-            select!(X, Not(col))
+# folds de validación cruzada estratificada
+folds = crossvalidation(df.Winner, 5)
+k = 5
+
+# Diccionarios para guardar los resultados de cada modelo por fold
+acc_ann = Float64[]
+acc_svm = Float64[]
+acc_tree = Float64[]
+acc_knn = Float64[]
+acc_dome = Float64[]
+
+for fold in 1:k
+    println("\n=========== Fold $fold ===========")
+
+    train_idx = findall(folds .!= fold)
+    test_idx = findall(folds .== fold)
+
+    df_train = df[train_idx, :]
+    df_test = df[test_idx, :]
+
+    # One-hot encoding
+    cols_onehot = [:Series, :Surface, :RoundGroup]
+    for col in cols_onehot
+        clases = unique(df_train[!, col])
+        df_train_cod = oneHotEncoding(df_train[!, col], clases, string(col))
+        df_test_cod  = oneHotEncoding(df_test[!, col], clases, string(col))
+
+        df_train = hcat(select(df_train, Not(col)), df_train_cod)
+        df_test  = hcat(select(df_test, Not(col)), df_test_cod)
+
+        println("Codificación One-hot $col exitosa")
+    end
+
+    # Normalización
+    cols_normalize = [:Pts_Diff_Rel, :Odd_Diff]
+    for col in cols_normalize
+        μ = mean(df_train[!, col])
+        σ = std(df_train[!, col])
+        new_name = Symbol("$(col)_normalized")
+
+        if σ ≈ 0
+            df_train[!, new_name] .= 0.0
+            df_test[!, new_name]  .= 0.0
+        else
+            df_train[!, new_name] = (df_train[!, col] .- μ) ./ σ
+            df_test[!, new_name]  = (df_test[!, col] .- μ) ./ σ
         end
+
+        select!(df_train, Not(col))
+        select!(df_test, Not(col))
+
+        println("Normalización Zero-mean $col exitosa")
     end
 
-    # 2) Normalización z-score train→test
-    for col in (:Pts_Diff_Rel, :Odd_Diff)
-        v = X[!, col]
-        μ = mean(v)
-        σ = std(v)
-        X[!, col] = σ == 0 ? zeros(length(v)) : (v .- μ) ./ σ
-    end
+    # Guardar dataset procesado por fold (opcional)
+    df_fold = vcat(df_train, df_test)
+    CSV.write("atp_tennis_procesado_fold$fold.csv", df_fold)
 
-    return Matrix(X), y
+    # Separar variables
+    X_train = Matrix(select(df_train, Not(:Winner)))
+    y_train = Vector(df_train.Winner)
+
+    y_train_bin = y_train .== 1
+
+    X_test = Matrix(select(df_test, Not(:Winner)))
+    y_test = Vector(df_test.Winner)
+
+    # Entrenamiento de modelos
+
+    # === ANN ===
+    ann, _ = trainClassANN([10], (X_train, y_train_bin); maxEpochs=50, learningRate=0.01)
+    y_pred_ann = ann(Float32.(X_test'))'[:, 1] .> 0.5
+    acc = sum(y_pred_ann .== y_test) / length(y_test)
+    push!(acc_ann, acc)
+    println("Accuracy ANN: ", acc)
+
+    # === SVM ===
+    modelo = SVMClassifier()
+    svm_model = machine(modelo, MLJ.table(X_train), categorical(string.(y_train)))
+    MLJ.fit!(svm_model, verbosity=0)
+    y_pred_svm = MLJ.predict(svm_model, MLJ.table(X_test))
+    acc = sum(y_pred_svm .== string.(y_test)) / length(y_test)
+    push!(acc_svm, acc)
+    println("Accuracy SVM: ", acc)
+
+    # === Árbol ===
+    tree_model = machine(DecisionTreeClassifier(max_depth=5), MLJ.table(X_train), categorical(string.(y_train)))
+    MLJ.fit!(tree_model, verbosity=0)
+    y_pred_tree = mode.(MLJ.predict(tree_model, MLJ.table(X_test)))
+    acc = sum(y_pred_tree .== string.(y_test)) / length(y_test)
+    push!(acc_tree, acc)
+    println("Accuracy Árbol: ", acc)
+
+    # === kNN ===
+    knn_model = machine(KNNClassifier(K=5), MLJ.table(X_train), categorical(string.(y_train)))
+    MLJ.fit!(knn_model, verbosity=0)
+    y_pred_knn = MLJ.predict(knn_model, MLJ.table(X_test))
+    acc = sum(y_pred_knn .== string.(y_test)) / length(y_test)
+    push!(acc_knn, acc)
+    println("Accuracy kNN: ", acc)
+
+    # === DoME ===
+    y_train_dome = y_train .== 1
+    y_test_dome = string.(y_test)
+    println(typeof(y_train_dome))
+    y_pred_dome = trainClassDoME((X_train, y_train_dome), X_test, 3)
+    acc = sum(y_pred_dome .== y_test_dome) / length(y_test_dome)
+    push!(acc_dome, acc)
+    println("Accuracy DoME: ", acc)
 end
 
-# ----------------------------------------
-# Configuración cross-validation
-k = 5
-folds = crossvalidation(df.Winner, k)
+# =========================
+# GUARDAR RESULTADOS FINALES
+# =========================
 
-# Preparar DataFrame de resultados
 resultados = DataFrame(
-  Modelo       = String[],
-  Parametros   = String[],
-  AccuracyMedia = Float64[],
-  AccuracyStd  = Float64[]
+    Modelo = ["ANN", "SVM", "Árbol", "kNN", "DoME"],
+    Accuracy = [mean(acc_ann), mean(acc_svm), mean(acc_tree), mean(acc_knn), mean(acc_dome)],
+    Desviacion = [std(acc_ann), std(acc_svm), std(acc_tree), std(acc_knn), std(acc_dome)]
 )
 
-# Modelos a evaluar
-model_configs = [
-  (:ANN,                      Dict("topology"=>[16], "learningRate"=>0.01, "minLoss"=>0.005)),
-  (:SVC,                      Dict("kernel"=>"linear", "C"=>1.0)),
-  (:DecisionTreeClassifier,   Dict("max_depth"=>3)),
-  (:KNeighborsClassifier,     Dict("n_neighbors"=>5)),
-  (:DoME,                     Dict("maximumNodes"=>4))
-]
-
-# ----------------------------------------
-# Bucle sobre modelos y folds
-for (modelo, config) in model_configs
-  accuracies = Float64[]
-  for fold in 1:k
-    # separa índices
-    train_idx = findall(folds .!= fold)
-    test_idx  = findall(folds .== fold)
-    df_train = df[train_idx, :]
-    df_test  = df[test_idx, :]
-
-    # preprocesado
-    one_hot = (modelo == :ANN)
-    X_train, y_train = procesar_fold(df_train; one_hot=one_hot)
-    X_test,  y_test  = procesar_fold(df_test;  one_hot=one_hot)
-
-    # entrenamiento + predicción
-    if modelo == :ANN
-      ann, _ = trainClassANN(
-        config["topology"],
-        (X_train, y_train);
-        learningRate = config["learningRate"],
-        minLoss      = config["minLoss"]
-      )
-      y_pred = vec(classifyOutputs(ann(Float32.(X_test'))'))
-      y_true = y_test
-
-    elseif modelo == :DoME
-      y_pred = trainClassDoME((X_train, y_train), X_test, config["maximumNodes"])
-      y_true = y_test
-
-    else
-      # SVC, DecisionTree o KNN vía MLJ
-      model = modelo == :SVC ? SVC(kernel=LIBSVM.Kernel.Linear, cost=config["C"]) :
-              modelo == :DecisionTreeClassifier ?
-                (@load DecisionTreeClassifier pkg=DecisionTree verbosity=0)(max_depth=config["max_depth"]) :
-              modelo == :KNeighborsClassifier ?
-                (@load KNNClassifier pkg=NearestNeighborModels verbosity=0)(K=config["n_neighbors"]) :
-              error("Modelo desconocido")
-      mach = machine(model, MLJ.table(X_train), categorical(string.(y_train)))
-      fit!(mach, verbosity=0)
-      y_pred = mode.(predict(mach, MLJ.table(X_test)))
-      y_true = string.(y_test)
-    end
-
-    push!(accuracies, mean(y_pred .== y_true))
-  end
-
-  # almacena resultados
-  push!(resultados, (
-    string(modelo),
-    repr(config),
-    round(mean(accuracies), digits=4),
-    round(std(accuracies), digits=4)
-  ))
-end
-
-# ----------------------------------------
-# Guardar y mostrar
-CSV.write("resultados.csv", resultados)
-println("✅ Resultados guardados en resultados.csv")
+CSV.write("resultados_finales.csv", resultados)
+println("\n✅ Resultados guardados en 'resultados_finales.csv'")
