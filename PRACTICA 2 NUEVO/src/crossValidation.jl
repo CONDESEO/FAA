@@ -124,17 +124,18 @@ for (modelo, config) in model_configs
             select!(df_test, Not(col))
         end
 
-        # Guardar datasets preprocesados
-        CSV.write("train_procesado_fold$fold.csv", df_train)
-        CSV.write("test_procesado_fold$fold.csv", df_test)
+        # Guardamos datasets preprocesados (usado para comprobar que se codifica y normaliza correctamente)
+        CSV.write("data2/train_procesado_fold$fold.csv", df_train)
+        CSV.write("data2/test_procesado_fold$fold.csv", df_test)
 
 
-        # Separar variables
+        # Separamos variables
         X_train = Matrix(select(df_train, Not(:Winner)))
         y_train = Vector(df_train.Winner)
         X_test  = Matrix(select(df_test, Not(:Winner)))
         y_test  = Vector(df_test.Winner)
 
+        #Recorremos los modelos y sus configuraciones para el entrenamiento
         if modelo == :ANN
             y_train_bin = y_train .== 1
             ann, _ = trainClassANN(config["topology"], (X_train, y_train_bin);
@@ -188,7 +189,7 @@ for (modelo, config) in model_configs
         end
     end
 
-    # Guardar resultados de esta configuración
+    # Guardamos los resultados de esta configuración
     push!(resultados_configuraciones, (
         string(modelo),
         repr(config),
@@ -198,18 +199,18 @@ for (modelo, config) in model_configs
 end
 
 # ========================================
-# GUARDAR TODAS LAS CONFIGURACIONES PROBADAS
+# GUARDAMOS TODAS LAS CONFIGURACIONES PROBADAS
 # ========================================
-CSV.write("resultados_todas_configuraciones.csv", resultados_configuraciones)
+CSV.write("resultados/resultados_todas_configuraciones.csv", resultados_configuraciones)
 println("\nGuardado 'resultados_todas_configuraciones.csv' con todas las configuraciones evaluadas.")
 
 # ========================================
-# MEJOR CONFIGURACIÓN POR MODELO
+# GUARDAMOS LA MEJOR CONFIGURACIÓN POR MODELO
 # ========================================
 mejores_configuraciones = combine(groupby(resultados_configuraciones, :Modelo)) do subdf
     idx = argmax(subdf.AccuracyMedia)
     subdf[idx, :]
 end
 
-CSV.write("mejores_configuraciones.csv", mejores_configuraciones)
+CSV.write("resultados/mejores_configuraciones.csv", mejores_configuraciones)
 println("Guardado 'mejores_configuraciones.csv' con la mejor configuración por modelo.")

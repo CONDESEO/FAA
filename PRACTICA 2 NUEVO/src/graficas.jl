@@ -1,12 +1,9 @@
 using CSV, DataFrames, Plots
 default(fmt = :png, dpi = 300)
 
-# Crear carpeta si no existe
-isdir("graficas") || mkdir("graficas")
-
-# Leer archivos
-resultados = CSV.read("resultados_todas_configuraciones.csv", DataFrame)
-mejores = CSV.read("mejores_configuraciones.csv", DataFrame)
+# Leemos los archivos
+resultados = CSV.read("resultados/resultados_todas_configuraciones.csv", DataFrame)
+mejores = CSV.read("resultados/mejores_configuraciones.csv", DataFrame)
 
 # ========== 1. Accuracy medio por mejor modelo ==========
 bar(
@@ -37,7 +34,6 @@ modelos = unique(resultados.Modelo)
 for modelo in modelos
     subdf = filter(:Modelo => m -> m == modelo, resultados)
     
-    # Etiquetas legibles
     etiquetas = formatear_parametros.(subdf.Parametros)
     
     plot(
@@ -56,3 +52,6 @@ for modelo in modelos
     
     savefig("graficas/accuracy_$modelo.png")
 end
+
+
+println("Gráficos generados correctamente")
