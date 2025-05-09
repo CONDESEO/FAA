@@ -1,0 +1,49 @@
+Modelo,Parametros,AccuracyMedia,AccuracyStd
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [5], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [10], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [20], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [50], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [10, 5], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [20, 10], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.001, ""topology"" => [10, 20], ""minLoss"" => 0.01)",0.5088636402019894,0.0001954136735960326
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [20, 5], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [5, 20], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [10, 10], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [30, 15], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.001, ""topology"" => [15, 30], ""minLoss"" => 0.01)",0.5088636402019894,0.0001954136735960326
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [20, 10, 5], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.001, ""topology"" => [10, 20, 10], ""minLoss"" => 0.01)",0.5052325581395349,0.008001171957108403
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [5, 10, 5], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.01, ""topology"" => [30], ""minLoss"" => 0.005)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [40, 20], ""minLoss"" => 0.005)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.001, ""topology"" => [20, 40], ""minLoss"" => 0.005)",0.5088636402019894,0.0001954136735960326
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [15, 15], ""minLoss"" => 0.01)",0.5053752681089663,0.00788203333459374
+ANN,"Dict{String, Any}(""learningRate"" => 0.005, ""topology"" => [25, 10, 5], ""minLoss"" => 0.005)",0.5053752681089663,0.00788203333459374
+SVC,"Dict{String, Any}(""C"" => 0.01, ""kernel"" => LIBSVM.Kernel.Linear)",0.6886074800290487,0.0066553971441561995
+SVC,"Dict{String, Any}(""C"" => 0.1, ""kernel"" => LIBSVM.Kernel.Linear)",0.6945654101433855,0.00785376724235785
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => LIBSVM.Kernel.Linear)",0.6952923654388543,0.007900331851432577
+SVC,"Dict{String, Any}(""C"" => 0.1, ""kernel"" => LIBSVM.Kernel.RadialBasis)",0.6206054407120298,0.008867925683206348
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => LIBSVM.Kernel.RadialBasis)",0.678729036834372,0.007310292458130928
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => LIBSVM.Kernel.Polynomial, ""degree"" => 2)",0.6281602024961578,0.014120222845660663
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => LIBSVM.Kernel.Polynomial, ""degree"" => 3)",0.6281602024961578,0.014120222845660663
+SVC,"Dict{String, Any}(""C"" => 0.5, ""kernel"" => LIBSVM.Kernel.Sigmoid)",0.5107527528668659,0.012071718679470383
+DecisionTreeClassifier,"Dict(""max_depth"" => 2)",0.6942776680008782,0.009939440445401416
+DecisionTreeClassifier,"Dict(""max_depth"" => 4)",0.6926784085727313,0.008756300185715733
+DecisionTreeClassifier,"Dict(""max_depth"" => 6)",0.6835221707115232,0.0035125134262716045
+DecisionTreeClassifier,"Dict(""max_depth"" => 8)",0.6711711084089106,0.008068229610831815
+DecisionTreeClassifier,"Dict(""max_depth"" => 10)",0.6656481692590905,0.01149692649074986
+DecisionTreeClassifier,"Dict(""max_depth"" => 12)",0.6543157099187651,0.010912127703021933
+KNeighborsClassifier,"Dict(""n_neighbors"" => 1)",0.6011326020502947,0.008687646572021864
+KNeighborsClassifier,"Dict(""n_neighbors"" => 3)",0.6210392705747243,0.014352652106767583
+KNeighborsClassifier,"Dict(""n_neighbors"" => 5)",0.6358612631098951,0.007239871823699588
+KNeighborsClassifier,"Dict(""n_neighbors"" => 7)",0.6461767028085997,0.007785338825352211
+KNeighborsClassifier,"Dict(""n_neighbors"" => 9)",0.6442883290267012,0.010890293711179791
+KNeighborsClassifier,"Dict(""n_neighbors"" => 11)",0.6492281839523062,0.012520724444304954
+DoME,"Dict(""maximumNodes"" => 2)",0.5088636402019894,0.0001954136735960326
+DoME,"Dict(""maximumNodes"" => 3)",0.7012517733191468,0.010996265681293891
+DoME,"Dict(""maximumNodes"" => 4)",0.7012517733191468,0.010996265681293891
+DoME,"Dict(""maximumNodes"" => 5)",0.6989270363614869,0.010871696092804714
+DoME,"Dict(""maximumNodes"" => 6)",0.6989270363614869,0.010871696092804714
+DoME,"Dict(""maximumNodes"" => 8)",0.688028406883856,0.009325596207732979
+DoME,"Dict(""maximumNodes"" => 10)",0.6862834819543666,0.007908895988103492
+DoME,"Dict(""maximumNodes"" => 12)",0.6878818969448244,0.008583706938794346

@@ -1,0 +1,6 @@
+Modelo,Parametros,AccuracyMedia,AccuracyStd
+ANN,"Dict{String, Any}(""learningRate"" => 0.001, ""topology"" => [10, 20], ""minLoss"" => 0.01)",0.5088636402019894,0.0001954136735960326
+SVC,"Dict{String, Any}(""C"" => 1.0, ""kernel"" => LIBSVM.Kernel.Linear)",0.6952923654388543,0.007900331851432577
+DecisionTreeClassifier,"Dict(""max_depth"" => 2)",0.6942776680008782,0.009939440445401416
+KNeighborsClassifier,"Dict(""n_neighbors"" => 11)",0.6492281839523062,0.012520724444304954
+DoME,"Dict(""maximumNodes"" => 3)",0.7012517733191468,0.010996265681293891
